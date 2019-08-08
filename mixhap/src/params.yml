@@ -1,0 +1,23 @@
+name: mixhap
+version: "1.0"
+author: Haynes Heaton <whheaton@gmail.com>
+about: phasing using Bernoulli mixture model clustering with EM
+args:
+    - variants:
+        long: variants
+        short: v
+        takes_value: true
+        required: true
+        help: variant molecule support
+    - ploidy: 
+        long: ploidy
+        short: p
+        takes_value: true
+        required: false
+        help: ploidy
+    - whitelist:
+        long: barcode_whitelist
+        short: b
+        takes_value: true
+        required: true
+        help: barcode whitelist from 10x genomics longranger 
