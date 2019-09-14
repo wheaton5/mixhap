@@ -1,0 +1,3 @@
+[submodule "het_snp_kmers"]
+	path = het_snp_kmers
+	url = https://github.com/wheaton5/het_snp_kmers.git

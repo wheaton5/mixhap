@@ -7,6 +7,8 @@ extern crate bit_vec;
 
 use cpuprofiler::PROFILER;
 use rand::Rng;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::f32;
 
 use clap::{App};
@@ -34,10 +36,30 @@ fn main() {
                                 // map from molecules to list of variants (negative means alt support, positive means ref support)
     //println!("variant support loaded");
     //println!("testing, I have this many molecules {}", barcodes.len());
-    let (variants, molecules) = extract_molecules(variants, barcodes);
-    //experiment(variants, molecules);
-    //println!("Hello, world!");
-    phuzzy_phaser_master(molecules, variants, params.ploidy, phasing, info);
+    //let (variants, molecules) = extract_molecules(variants, barcodes);
+    //go_ahead(&variants, &barcodes);
+    phuzzy_phaser_master(barcodes, variants, params.ploidy, phasing, info);
+}
+
+fn go_ahead(variants: &Vec<Vec<i32>>, molecules: &FnvHashMap<i32, Vec<i32>>) {
+    let mut variant_connections: FnvHashMap<(i32, i32), usize> = FnvHashMap::default();
+    for (_mol, vars) in molecules.iter() {
+        for i in 0..vars.len() {
+            for j in (i+1)..vars.len() {
+                let v1 = vars[i].abs();
+                let v2 = vars[j].abs();
+                let count = variant_connections.entry((v1,v2)).or_insert(0);
+                *count += 1;
+            }
+        }
+    }
+    println!("graph {{");
+    for ((v1,v2), c) in variant_connections.iter() {
+        if c > &20 && v1 % 5 == 0 && v2 % 5 == 0 {
+            println!("{} -- {} [weight=\"{}\"];", v1, v2, c);
+        }
+    }
+    println!("}}");
 }
 
 fn extract_molecules(variants: Vec<Vec<i32>>, barcodes: FnvHashMap<i32, Vec<i32>>) -> 
@@ -117,7 +139,8 @@ fn phuzzy_phaser_master(molecules: FnvHashMap<i32, Vec<i32>>, variants: Vec<Vec<
         for _ in 0..vars_per_step { denoms[cluster].push(0.0); sums[cluster].push(0.0); }
     }
     let mut cluster_centers: Vec<Vec<f32>> = Vec::new();
-    let mut rng = rand::thread_rng();
+    let seed: [u8; 32] = [4; 32];
+    let mut rng: StdRng = SeedableRng::from_seed(seed);
     for cluster in 0..num_clusters {
         cluster_centers.push(Vec::new());
         for _ in 0..variants.len() {
@@ -130,66 +153,65 @@ fn phuzzy_phaser_master(molecules: FnvHashMap<i32, Vec<i32>>, variants: Vec<Vec<
         touched_vars.push(false);
     }
 
-
-    let mut variant_window = VariantRecruiter::new(variants, molecules);
-    //pick 10 starting variant
-    let mut total_variants = 0;
-    println!("chrom\t\t\tpos\tref\talt\tLR_ps\tLR_gt\tconnections\thap1\thap2");
-    'phaseblockloop: loop {
-        let mut new_variants: Vec<usize> = Vec::new();
-        let mut current_molecules: Vec<Vec<i32>> = Vec::new();
-        let mut used_mols: FnvHashSet<i32> = FnvHashSet::default();
-        let mut mol_connections: Vec<u32> = Vec::new();
-        for _i in 0..vars_per_step {
-            total_variants += 1;
-            let (variant, connections) = match variant_window.get_next_variant(50) {
-                Some((x,y)) => (x,y),
-                None => break 'phaseblockloop,
-            };
-            mol_connections.push(connections);
-            let vardex = variant.abs() as usize;
-            new_variants.push(vardex);
-            for molecule in &variant_window.variants[vardex] {
-                let moldex = molecule.abs();
-                if !used_mols.contains(&moldex) {
-                    let mut mol: Vec<i32> = Vec::new();
-                    for var in variant_window.molecules.get(&moldex).unwrap() {
-                        mol.push(*var);
-                    }
-                    current_molecules.push(mol);
-                } 
-            }     
-            // add our new variant
-            variant_window.add_variant(variant, connections);
+    let mut first_varset: Vec<i32> = Vec::new();
+    let directions: [i32; 2] = [1, -1];
+    let mut variant_window = VariantRecruiter::new(&variants, &molecules);
+    println!("iteration\tvardex\tchrom\tpos\tref\talt\tLR_ps\tLR_gt\tconnections\thap1\thap2");
+    for direction in &directions { 
+        let mut total_variants: i32 = 0;
+        if *direction == -1 && total_variants == 0 {
+            variant_window.reset_except_visited();
+            for vardex in &first_varset {
+                variant_window.add_variant(&variants, &molecules, *vardex);
+            }
         }
-        new_variants.sort(); 
-        for variant in &new_variants { touched_vars[*variant] = true; }
-        next_cluster_step(current_molecules, &mut cluster_centers, &new_variants, &mut cluster_support, &touched_vars, &mut denoms, &mut sums);
-        //println!("total variants so far {}",total_variants);
-        for (index, vardex) in new_variants.iter().enumerate() {
-            let (chrom, pos, reference, alt, ps) = info.get(&(*vardex as i32)).unwrap();
-            println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}", chrom, pos, reference, alt, ps, 
-                phasing.get(&(*vardex as i32)).unwrap(), mol_connections[index],cluster_centers[0][*vardex],cluster_centers[1][*vardex]);
+        //pick 20 starting variant
+        'phaseblockloop: loop {
+            let mut new_variants: Vec<usize> = Vec::new();
+            let mut current_molecules: Vec<Vec<i32>> = Vec::new();
+            let mut used_mols: FnvHashSet<i32> = FnvHashSet::default();
+            let mut mol_connections: Vec<u32> = Vec::new();
+            let mut new_iterations: Vec<i32> = Vec::new();
+            for _i in 0..vars_per_step {
+                new_iterations.push(total_variants);
+                total_variants += direction;
+                let (variant, connections) = match variant_window.get_next_variant(&variants, &molecules, 20) {
+                    Some((x,y)) => (x,y),
+                    None => { 
+                        //println!("breaking phaseblock loop because i didnt get next variant"); 
+                        break 'phaseblockloop },
+                };
+                // add our new variant
+                //println!("{}\t{}",variant, connections);
+                variant_window.add_variant(&variants, &molecules, variant);
+                if *direction == 1 && total_variants < 10 { first_varset.push(variant); }
+                mol_connections.push(connections);
+                let vardex = variant.abs() as usize;
+                new_variants.push(vardex);
+                for molecule in &variants[vardex] {
+                    let moldex = molecule.abs();
+                    if !used_mols.contains(&moldex) {
+                        let mut mol: Vec<i32> = Vec::new();
+                        for var in molecules.get(&moldex).unwrap() {
+                            let vardex = var.abs();
+                            if variant_window.current_variant_molecules.contains_key(&vardex) { // TODO might want to remove
+                                mol.push(*var);
+                            }
+                        }
+                        current_molecules.push(mol);
+                    } 
+                }     
+            }
+            new_variants.sort(); 
+            for variant in &new_variants { touched_vars[*variant] = true; }
+            next_cluster_step(current_molecules, &mut cluster_centers, &new_variants, &mut cluster_support, &touched_vars, &mut denoms, &mut sums);
+            for (index, vardex) in new_variants.iter().enumerate() {
+                let (chrom, pos, reference, alt, ps) = info.get(&(*vardex as i32)).unwrap();
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}", new_iterations[index], vardex, chrom, pos, reference, alt, ps, 
+                    phasing.get(&(*vardex as i32)).unwrap(), mol_connections[index],cluster_centers[0][*vardex],cluster_centers[1][*vardex]);
+            }
         }
     }
-    
-    
-    if false {
-        // lets build a total test case 
-        let mut mols: Vec<Vec<i32>> = Vec::new();
-        for i in 1..8 {
-            mols.push((i..(i+4)).collect());
-            mols.push(((-i-3)..(-i+1)).rev().collect());
-        }
-        let new_variants: Vec<usize> = (1..11).collect();
-        println!(" and off we go");
-        next_cluster_step(mols, &mut cluster_centers, &new_variants, &mut cluster_support, &touched_vars, &mut denoms, &mut sums);
-        for (i, cluster) in cluster_centers.iter().enumerate() {
-            println!("cluster {} = {:?}",i,cluster);
-        }
-    }
-    
-    
 }
 
 fn log_sum_exp(p: &Vec<f32>) -> f32{
@@ -213,10 +235,6 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                 sums[cluster][vardex] = 0.001*cluster_centers[cluster][new_variants[vardex]];
             }
         } 
-        //println!("iteration {}",iteration);
-        //for cluster in 0..2 {
-            //println!("cluster center {} = {:?}",cluster,cluster_centers[cluster]);
-        //}
         // Expectation
         for (mol_num, molecule_variants) in molecules.iter().enumerate() {
             let mut sum = 0.0;
@@ -237,13 +255,12 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                     } else {
                         cluster_support[cluster] += (1.0 - cluster_centers[cluster][var]).ln();
                     }
-                    assert!(!cluster_support[cluster].is_infinite(), "infinite value, cluster center {}", cluster_centers[cluster][var]);
-                    if cluster_support[cluster].is_infinite() {
-                        println!("infinite value, cluster_center {}",cluster_centers[cluster][var]);
-                        assert!(false);
-                    }
+                    //assert!(!cluster_support[cluster].is_infinite(), "infinite value, cluster center {}", cluster_centers[cluster][var]);
+                    //if cluster_support[cluster].is_infinite() {
+                    //    println!("infinite value, cluster_center {}",cluster_centers[cluster][var]);
+                    //    assert!(false);
+                    //}
                 }
-                //sum += cluster_support[cluster].exp();
             }
             sum = log_sum_exp(cluster_support);
             for cluster in 0..cluster_centers.len() { 
@@ -251,25 +268,9 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                 let tmp2 = cluster_support[cluster];
                 cluster_support[cluster] -= sum; 
                 cluster_support[cluster] = cluster_support[cluster].exp(); 
-                if cluster_support[cluster].is_nan() || cluster_support[cluster].is_infinite() {
-                    println!("PUKE0 {}\t{}\t{}",tmp,tmp2,tmp);
-                }
             }
-            
-            //for cluster in 0..cluster_centers.len() {
-            //    if iteration > 3 && cluster_support[cluster] < 0.95 && cluster_support[cluster] > 0.05 {
-            //        println!("mol {}, cluster {}, support {}",mol_num, cluster, cluster_support[cluster]);
-            //        println!("\t{:?}",molecule_variants);
-            //    }
-            //}
             vardex = 0; moldex = 0; varval = new_variants[vardex]; molval = molecule_variants[moldex].abs() as usize;
-            //println!("mol {} count {}\tc1:\t{}\tc2:\t{}", mol_num, count, cluster_support[0], cluster_support[1]);
-            //if cluster_support[0].is_nan() || cluster_support[1].is_nan() || cluster_support[0].is_infinite() || cluster_support[1].is_infinite() {
-            //    println!("PUKE1 {}\t{}",cluster_support[0], cluster_support[1]);
-            //}
-            //print!("\t");
             loop {
-                //println!("moldex {}, molval {}, vardex {}, varval {}", moldex, molval, vardex, varval);
                 if varval > molval { 
                     moldex += 1; if moldex >= molecule_variants.len() { break; } molval = molecule_variants[moldex].abs() as usize; 
                 } else if molval > varval {
@@ -277,20 +278,11 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                 } else {
                     // actually update things
                     for cluster in 0..cluster_centers.len() {
-                        //print!("\t{}",molecule_variants[moldex]);
-                        //println!("_{} denom = {} + {} = {}",cluster,denoms[cluster][vardex], cluster_support[cluster], denoms[cluster][vardex] + cluster_support[cluster]);
                         denoms[cluster][vardex] += cluster_support[cluster];
-                        //if denoms[cluster][vardex].is_nan() || denoms[cluster][vardex].is_infinite() { println!("PUKE2 {}\t{}",denoms[cluster][vardex],cluster_support[cluster]);}            
-                        //print!("\t{}",molecule_variants[moldex]);
                         if molecule_variants[moldex] > 0 {
-                            //println!("_{} sum = {} + {} = {}",cluster,sums[cluster][vardex], cluster_support[cluster], sums[cluster][vardex] + cluster_support[cluster]);
                             sums[cluster][vardex] += cluster_support[cluster]; // 1*cluster_support[0]
-                            //if sums[cluster][vardex].is_nan() || sums[cluster][vardex].is_infinite() { println!("PUKE3 {}\t{}",sums[cluster][vardex],cluster_support[cluster]);}            
-
-                        } //else { 
-                        //    println!("\tsum no change = {}",sums[cluster][vardex]);
-                        //}// else add 0*cluster_support[cluster]
-                    }//println!();
+                        } // else add 0*cluster_support[cluster]
+                    }
                     moldex += 1;  if moldex >= molecule_variants.len() { break; } molval = molecule_variants[moldex].abs() as usize;
                     vardex += 1;  if vardex >= new_variants.len() { break; }  varval = new_variants[vardex];
                 }
@@ -301,44 +293,46 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
         for (vardex, variant) in new_variants.iter().enumerate() {
             for cluster in 0..denoms.len() {
                 let newval = (sums[cluster][vardex] / denoms[cluster][vardex]).max(0.00001).min(0.99999);
-                //if newval.is_nan() {println!("PUKE nan works");}
-                //println!("{}, {}, {}", sums[cluster][vardex], denoms[cluster][vardex], newval);
                 change += (cluster_centers[cluster][*variant] - newval).abs();
                 cluster_centers[cluster][*variant] = newval;
             }
         }
     }
-    //(cluster_centers, sums, denoms, new_variants, cluster_support, touched) // return cluster centers and memory reuse things
 }
 
-fn gather_info(variants: Vec<Vec<i32>>, all_barcodes: FnvHashMap<i32, Vec<i32>>, info: Vec<(String, i32)>) {
-    eprintln!("chrom1\tpos1\tchrom2\tchrom2\tbc1\tbc2\tshared");
-    for var1dex in (0..variants.len()).step_by(5000) {
-        let mut barcodes: FnvHashSet<i32> = FnvHashSet::default();
-        for bc in &variants[var1dex] { barcodes.insert(bc.abs()); }
-        let mut vars: FnvHashSet<usize> = FnvHashSet::default();
-        for bc in &variants[var1dex] {
-            let bc = bc.abs();
-            for var2dex in all_barcodes.get(&bc).unwrap() {   //(var1dex+1)..variants.len() {
-                let var2dex = var2dex.abs() as usize;
-                if var2dex == var1dex { continue; }
-                vars.insert(var2dex);
+struct PhaseBlock {
+    variant_indices: Vec<usize>,
+    cluster_centers: Vec<Vec<f32>>,
+    visited: BitVec,
+}
+
+impl PhaseBlock {
+    fn new(centers: &Vec<Vec<f32>>, visited: &BitVec) -> PhaseBlock {
+        let mut cluster_centers: Vec<Vec<f32>> = Vec::new();
+        let mut variant_indices: Vec<usize> = Vec::new();
+        let mut variants_visited: BitVec = BitVec::from_elem(visited.len(), false);
+        for index in 0..visited.len() {
+            if visited.get(index).unwrap() {
+                variant_indices.push(index);
+                variants_visited.set(index, true);
             }
         }
-        for var2dex in vars {
-            let mut count = 0;
-            for bc2 in &variants[var2dex] {
-                if barcodes.contains(&bc2.abs()) { count += 1; }
+        for cluster in 0..centers.len() {
+            let mut clust_center: Vec<f32> = Vec::new();
+            for index in 0..visited.len() {
+                if visited.get(index).unwrap() {
+                    clust_center.push(centers[cluster][index]);
+                }
             }
-            if count > 3 {
-                let (chrom1, pos1) = &info[var1dex];
-                let (chrom2, pos2) = &info[var2dex];
-                eprintln!("{}\t{}\t{}\t{}\t{}\t{}\t{}",chrom1, pos1, chrom2, pos2, variants[var1dex].len(), variants[var2dex].len(), count);
-            }
+            cluster_centers.push(clust_center);
+        }
+        PhaseBlock{
+            cluster_centers: cluster_centers,
+            variant_indices: variant_indices,
+            visited: variants_visited,
         }
     }
 }
-
 
 struct VariantRecruiter {
     variants_visited: BitVec,
@@ -348,45 +342,54 @@ struct VariantRecruiter {
     potential_variants: BTreeSet<(u32, i32)>,
     potential_variant_counts: FnvHashMap<i32, u32>,
     iteration: u32,
-    variants: Vec<Vec<i32>>,
-    molecules: FnvHashMap<i32, Vec<i32>>,
-    rng: rand::rngs::ThreadRng,
+    rng: StdRng,
 }
 
 impl VariantRecruiter { 
-    fn new(variants: Vec<Vec<i32>>, molecules: FnvHashMap<i32, Vec<i32>>) -> VariantRecruiter {
+    fn new(variants: &Vec<Vec<i32>>, molecules: &FnvHashMap<i32, Vec<i32>>) -> VariantRecruiter {
+        let seed: [u8; 32] = [1; 32];
+        let mut rng: StdRng = SeedableRng::from_seed(seed);
         VariantRecruiter{
-            variants_visited: BitVec::from_elem(variants.len(), false),
+            variants_visited: BitVec::from_elem(variants.len() + 1, false),
             current_molecules_variants: FnvHashMap::default(),
             current_variant_molecules: FnvHashMap::default(),
             molecule_last_seen: FnvHashMap::default(),
             potential_variants: BTreeSet::new(),
             potential_variant_counts: FnvHashMap::default(),
             iteration: 0,
-            variants: variants,
-            molecules: molecules,
-            rng: rand::thread_rng(),
+            rng: rng,
         }
     }
 
-    fn add_variant(&mut self, variant: i32, connections: u32) {
+    fn reset_except_visited(&mut self) {
+        self.current_molecules_variants = FnvHashMap::default();
+        self.current_variant_molecules = FnvHashMap::default();
+        self.molecule_last_seen = FnvHashMap::default();
+        self.potential_variants = BTreeSet::new();
+        self.potential_variant_counts = FnvHashMap::default();
+        self.iteration = 0;
+    }
+
+    fn add_variant(&mut self, variants: &Vec<Vec<i32>>, molecules: &FnvHashMap<i32, Vec<i32>>, variant: i32) {
         let variant = variant.abs();
         self.variants_visited.set(variant as usize, true);
         //println!("Adding variant {} with {} connections to current molecule set", variant, connections);
         let mut mols: FnvHashSet<i32> = FnvHashSet::default();
-        for mol in &self.variants[variant as usize] {
+        self.iteration += 1;
+        for mol in &variants[variant as usize] {
             mols.insert(*mol);
             let mol = mol.abs();
-            self.iteration += 1;
             self.molecule_last_seen.insert(mol, self.iteration);
             // for each new molecule we touch, go through their variants and add or update them to potential_variants and potential_variant_scores
             if !self.current_molecules_variants.contains_key(&mol) {
-                for var in self.molecules.get(&mol).unwrap() {
+                for var in molecules.get(&mol).unwrap() {
                     let var = var.abs();
+                    assert!((var as usize) < self.variants_visited.len(), "{} < {}",var, self.variants_visited.len());
                     if self.variants_visited.get(var as usize).unwrap() { continue; }
                     let count = self.potential_variant_counts.entry(var).or_insert(0);
                     self.potential_variants.remove(&(*count, var));
-                    *count += 1;
+                    //println!("{}", (1000.0/(variants[var as usize].len() as f32)).round() as u32);
+                    *count += 1000/(variants[(var - 1) as usize].len() as u32);
                     self.potential_variants.insert((*count, var));
                 }
             }
@@ -396,19 +399,22 @@ impl VariantRecruiter {
         }
         // add molecules to variant
         self.current_variant_molecules.insert(variant, mols);
-        //let mut molremove: Vec<i32> = Vec::new();
-        //for (mol, last_seen) in self.molecule_last_seen.iter() {
-        //    if self.iteration - last_seen > 200 {
-        //        molremove.push(*mol);
-        //    }
-        //}
-        //println!("{}\t{}\t{}\t{}",variant, connections, self.potential_variant_counts.len(),molremove.len());
-        //for mol in molremove {
-        //    self.remove_molecule(mol);
-        //}
+        if self.iteration % 20 == 0 {
+            let mut molremove: Vec<i32> = Vec::new(); //TODO might want to remove
+            for (mol, last_seen) in self.molecule_last_seen.iter() {
+                if self.iteration - last_seen > 100 {
+                    molremove.push(*mol);
+                }
+            }
+            for mol in molremove.iter() {
+                self.remove_molecule(variants, molecules, *mol);
+            }
+            let (count, var) = self.potential_variants.iter().next_back().unwrap();
+            //println!("removing {}, potential variants {}, new top connection {}", molremove.len(), self.potential_variants.len(), count);
+        }
     }
 
-    fn remove_molecule(&mut self, molecule: i32) {
+    fn remove_molecule(&mut self, variants: &Vec<Vec<i32>>, molecules: &FnvHashMap<i32, Vec<i32>>, molecule: i32) {
         // so we will look at each variant in self.current_molecules_variants
         for var in self.current_molecules_variants.get(&molecule).unwrap().iter() {
             // and remove that molecule from self.current_variant_molecules
@@ -418,7 +424,7 @@ impl VariantRecruiter {
             }
         }
         // and we will go through the variants in self.molecules[molecule] and downgrade or remove them from self.potential_variants_counts and self.potential_variants
-        for var in &self.molecules[&molecule] {
+        for var in &molecules[&molecule] {
             let var = var.abs();
             if self.variants_visited.get(var as usize).unwrap() { continue; }
             let count = match self.potential_variant_counts.get(&var) {
@@ -428,9 +434,10 @@ impl VariantRecruiter {
             if count > 0 {
                 self.potential_variants.remove(&(count, var));
             }
-            if count > 1 {
-                self.potential_variants.insert((count-1, var));
-                self.potential_variant_counts.insert(var, count-1);
+            let incr: u32 =  1000/(variants[(var - 1) as usize].len() as u32);
+            if count > incr {
+                self.potential_variants.insert((count-incr, var));
+                self.potential_variant_counts.insert(var, count-incr);
             } else {
                 self.potential_variant_counts.remove(&var);
             }
@@ -440,40 +447,33 @@ impl VariantRecruiter {
         self.molecule_last_seen.remove(&molecule);
     }
 
-    fn get_next_variant(&mut self, min: u32) -> Option<(i32, u32)> {
+    fn get_next_variant(&mut self, variants: &Vec<Vec<i32>>, molecules: &FnvHashMap<i32, Vec<i32>>, min: u32) -> Option<(i32, u32)> {
         //println!("choosing next variant");
+        let min = min*10;
         if self.potential_variant_counts.len() == 0 {
-            return Some((self.rng.gen_range(0, self.variants.len() as i32), 0))
-        } else {
-            let (count, variant) = self.potential_variants.iter().next_back().unwrap();
-            let (count, variant) = (*count, *variant);
-            self.potential_variants.remove(&(count, variant));
-            self.potential_variant_counts.remove(&variant);
-            if count >= min {
-                return Some((variant, count));
+            return Some((self.rng.gen_range(1, variants.len() as i32), 0))
+        } else {    
+            loop {
+                if self.potential_variant_counts.len() == 0 { break; }
+                let (count, variant) = self.potential_variants.iter().next_back().unwrap();
+                let (count, variant) = (*count , *variant);
+                self.potential_variants.remove(&(count, variant));
+                self.potential_variant_counts.remove(&variant);
+                if count >= min && (count as f32)/1000.0*(variants[(variant-1) as usize].len() as f32) > 10.0 {
+                    return Some((variant, count));
+                } //else {
+                    //println!("rejecting {} because {} < {} or {} <= 10.0", variant, count, min, (count as f32)/1000.0*(variants[(variant-1) as usize].len() as f32));
+                //}
             }
         }
-        println!("ending. why? I have visited {} variants out of {} variants", self.variants_visited.iter().filter(|x| *x).count(), self.variants.len());
-        println!("{} variants in potential variants.", self.potential_variant_counts.len());
-        let mut largest = 0;
-        for (key, val) in self.potential_variant_counts.iter() {
-            if *val > largest { largest = *val; }
-        }
-        println!("largest connectivity left in potential variants is {}",largest);
+        //println!("ending. why? I have visited {} variants out of {} variants", self.variants_visited.iter().filter(|x| *x).count(), variants.len());
+        //println!("{} variants in potential variants.", self.potential_variant_counts.len());
+        //let mut largest = 0;
+        //for (key, val) in self.potential_variant_counts.iter() {
+        //    if *val > largest { largest = *val; }
+        //}
+        //println!("largest connectivity left in potential variants is {}",largest);
         None
-    }
-}
-
-fn experiment(variants: Vec<Vec<i32>>, molecules: FnvHashMap<i32, Vec<i32>>) {
-    let mut variant_window = VariantRecruiter::new(variants, molecules);
-    //pick a starting variant
-    loop {
-        let (variant, connections) = match variant_window.get_next_variant(5) {
-            Some((x,y)) => (x,y),
-            None => break,
-        };
-        // add our new variant
-        variant_window.add_variant(variant, connections);
     }
 }
 
@@ -486,13 +486,17 @@ fn load_variants(params: &Params, whitelist: &FnvHashMap<String, i32>) ->
     let mut molecules: FnvHashMap<i32, Vec<i32>> = FnvHashMap::default();
     let mut info: FnvHashMap<i32, (String, i32, String, String, String)> = FnvHashMap::default();
     let mut phasing: FnvHashMap<i32, String> = FnvHashMap::default();
+    let mut index = 0;
     for line in reader.lines() {
         let line = line.expect("could not read line");
         if line.starts_with('#') { continue; }
-        if var_id % 10000 == 0 { 
+        //if index < 50000 { index += 1; continue; }
+        //if index % 10000 == 0 { 
             //println!("{} variants processed",var_id); 
-            if var_id >= 500000 { break; }
-        }
+            
+            if index >= 500000 { break; }
+        //}
+        index += 1;
         let tokens: Vec<&str> = line.trim().split_whitespace().collect();
         if tokens[6] != "PASS" { continue; }
         let chrom = tokens[0].to_string();
@@ -566,6 +570,7 @@ fn load_variants(params: &Params, whitelist: &FnvHashMap<String, i32>) ->
     }
     println!("reducing to good molecules");
     molecules.retain(|_key, value| value.len() > 5 && value.len() < 5000); // remember to get rid of this, replace with > 1 or > 2 or 3
+    println!("{} good molecules",molecules.len());
     for vardex in 0..variants.len() {
         let mut mol: Vec<i32> = Vec::new();
         for moldex in 0..variants[vardex].len() {
