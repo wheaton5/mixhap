@@ -1,0 +1,60 @@
+name: molecule_kmers
+version: "1.0"
+author: Haynes Heaton <whheaton@gmail.com>
+about: looks for kmers in molecules
+args:
+    - output:
+        long: output
+        short: o
+        takes_value: true
+        help: output file name (will be a binary file)
+    - paired_kmers:
+        long: paired_kmers
+        short: p
+        takes_value: true
+        required: false
+        help: kmer pairs (usually heterozygous pairs) in tsv kmer1\tkmer2\tcount\tcount (kmer is reverse compliment canonicalized)
+    - unpaired_kmers:
+        long: u
+        takes_value: true
+        required: false
+        help: unpaired kmers
+    - txg_r1s:
+        long: txg_r1s
+        multiple: true
+        takes_value: true
+        required: false
+        help: 10x genomics linked read files in fastq/fastq.gz format
+    - txg_r2s:
+        long: txg_r2s
+        multiple: true
+        takes_value: true
+        required: false
+        help: 10x genomics linked read files in fastq/fastq.gz format
+    - txg_trim_r1s:
+        long: txg_trim_r1s
+        multiple: true
+        takes_value: true
+        required: false
+        help: how any bases to trim after the barcode for each 10x genomics file
+    - txg_trim_r2s:
+        long: txg_trim_r2s
+        multiple: true
+        takes_value: true
+        required: false
+        help: how any bases to trim after the barcode for each 10x genomics file
+    - txg_barcodes:
+        long: txg_barcodes
+        required: false
+        takes_value: true
+        help: 10x genomics barcode whitelist
+    - long_reads:
+        long: long_reads
+        multiple: true
+        required: false
+        help: pacbio or oxford nanopore data in fasta/fastq optionally gzipped
+    - hic:
+        long: hic
+        multiple: true
+        required: false
+        help: hic files 
