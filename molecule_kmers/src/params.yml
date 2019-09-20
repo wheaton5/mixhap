@@ -53,8 +53,20 @@ args:
         multiple: true
         required: false
         help: pacbio or oxford nanopore data in fasta/fastq optionally gzipped
-    - hic:
-        long: hic
+    - hic_r1s:
+        long: hic_r1s
         multiple: true
         required: false
-        help: hic files 
+        takes_value: true
+        help: hic r1 files 
+    - hic_r2s:
+        long: hic_r2s
+        multiple: true
+        required: false
+        takes_value: true
+    - threads:
+        short: t
+        long: threads
+        required: false
+        takes_value: true
+        help: max number of threads. currently only paralelized over fastqs (and not across techs)
