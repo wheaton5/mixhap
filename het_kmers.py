@@ -18,19 +18,18 @@ subprocess.check_call(['mkdir',args.output])
 
 mypath = os.path.dirname(os.path.realpath(__file__))
 cmd = ["singularity", "exec", mypath+"/kmc.sif", "kmc", "-k"+str(args.kmer_size)]
-#cmd.extend(["-ci10", "-t"+str(args.threads), "-m"+str(args.memory), "-sm", '@'+args.input, args.output+"/"+args.output, args.tmp])
 if args.input[-3:] == 'bam':
     cmd.append('-fbam')
 cmd.extend(["-ci10", "-t"+str(args.threads), "-m"+str(args.memory), "-sm", "@"+args.input, args.output+"/"+args.output, args.tmp])
 with open(args.output+"/kmc.out",'w') as out:
     with open(args.output+"/kmc.err",'w') as err:
         subprocess.check_call(cmd, stdout=out, stderr=err)
-cmd = ["singularity", "exec",  "/lustre/scratch118/malaria/team222/hh5/software/kmc.sif", "kmc_tools", "transform", args.output+"/"+args.output, "dump","-s", args.output+"/kmer_counts.tsv"]
+cmd = ["singularity", "exec",  mypath+"/kmc.sif", "kmc_tools", "transform", args.output+"/"+args.output, "dump","-s", args.output+"/kmer_counts.tsv"]
 with open(args.output+"/dump.out",'w') as out:
     with open(args.output+"/dump.err",'w') as err:
         subprocess.check_call(cmd, stdout = out, stderr = err)
-        #subprocess.check_call(['singularity','exec','kmc.sif','kmc'],stdout=out,stderr=err)
 
+# potentially replace awk hist with kmc tools hist
 with open(args.output+"/awk.sh", 'w') as out:
     out.write("awk 'NF{ count[ $2 ]++} END{ for ( name in count ) { print name \"\t\" count[ name ] };} ' "+args.output+"/kmer_counts.tsv > "+args.output+"/hist.tsv")
 subprocess.check_call(["chmod","777",args.output+"/awk.sh"])

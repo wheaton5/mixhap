@@ -51,6 +51,7 @@ args:
     - long_reads:
         long: long_reads
         multiple: true
+        takes_value: true
         required: false
         help: pacbio or oxford nanopore data in fasta/fastq optionally gzipped
     - hic_r1s:
