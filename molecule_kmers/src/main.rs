@@ -30,8 +30,11 @@ use clap::{App};
 fn main() {
     let params = load_params();
     let kmers = load_kmers(&params);
+    eprintln!("txg");
     process_txg(&params, &kmers);
+    eprintln!("hic");
     process_hic(&params, &kmers);
+    eprintln!("longreads");
     process_longreads(&params, &kmers);
 }
 
@@ -77,12 +80,14 @@ fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>) {
         let mut linedex = 0;
         let mut vars: HashMap<i32, [u8; 2]> = HashMap::new(); // going to count how many of each allele across subreads to do consensus
         loop {
+                eprintln!("linedex {} readname {}", linedex, current_readname);
             let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read longread fastq");
             if bytes == 0 { handle_subreads(&vars); break; } // actually i need to deal with last subread here
             if linedex % 4 == 0 {
                 let readname = std::str::from_utf8(&buf).unwrap();
                 if current_readname != readname {
                     handle_subreads(&vars);// do stuff for last read
+                    vars.clear();
                     current_readname = readname.to_string();
                 }
             } else if linedex % 4 == 1 {
@@ -329,8 +334,8 @@ fn load_params() -> Params {
     for trim in txg_trim_tmp {
         txg_trim_r2s.push(trim.parse::<usize>().unwrap());
     }
-    assert!(txg_trim_r1s.len() == txg_r1s.len(), "If you specify txg_r1s, must also specify trim length for each file (txg_trim_r1s)");
-    assert!(txg_trim_r2s.len() == txg_r2s.len(), "If you specify txg_r2s, must also specify trim length for each file (txg_trim_r2s)");
+    assert!(txg_trim_r1s.len() == txg_r1s.len(), "If you specify txg_r1s, must also specify trim length for each file (txg_trim_r1s) {} {}",txg_r1s.len(), txg_trim_r1s.len());
+    assert!(txg_trim_r2s.len() == txg_r2s.len(), "If you specify txg_r2s, must also specify trim length for each file (txg_trim_r2s) {} {}",txg_r2s.len(), txg_trim_r2s.len());
     let hic_r1s_tmp = match params.values_of("hic_r1s") {
         Some(x) => x.collect(),
         None => Vec::new(),

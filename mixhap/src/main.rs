@@ -30,17 +30,19 @@ fn main() {
     //let whitelist = load_whitelist(&params); // map from barcode string to index in whitelist
     //println!("whitelist loaded");
     //let (variants, barcodes, info, phasing) = load_variants(&params, &whitelist); 
-    let (variants, barcodes) = load_molecule_kmers(&params);
-    let phasing = None;
-    let info = None;
+    let kmer_ids_to_kmer = load_kmers("/lustre/scratch118/malaria/team222/hh5/projects/analysis/assembly/arabiensis/het_kmers_10x4/het_kmers.tsv".to_string());
+    let (variants, barcodes) = load_molecule_kmers(&params, &kmer_ids_to_kmer);
+    //let phasing = None;
+    //let info = None;
+
     //gather_info(variants, barcodes, info);
         // list from variant to list of molecule ids (negative means alt support, positive means ref support)
                                 // map from molecules to list of variants (negative means alt support, positive means ref support)
     //println!("variant support loaded");
     //println!("testing, I have this many molecules {}", barcodes.len());
     //let (variants, molecules) = extract_molecules(variants, barcodes);
-    //go_ahead(&variants, &barcodes);
-    phuzzy_phaser_master(barcodes, variants, params.ploidy, phasing, info);
+    
+    phuzzy_phaser_master(barcodes, variants, params.ploidy, None, None, kmer_ids_to_kmer);
 }
 
 
@@ -49,7 +51,8 @@ fn main() {
 
 fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32>>, 
         num_clusters: usize, phasing: Option<HashMap<i32, String>>, 
-        info: Option<HashMap<i32, (String, i32, String, String, String)>>) {
+        info: Option<HashMap<i32, (String, i32, String, String, String)>>,
+        kmer_ids_to_kmer: HashMap<i32, String>) {
     let mut cluster_support: Vec<f32> = Vec::new(); // to be reused
     for _cluster in 0..num_clusters { cluster_support.push(0.0); } //initialize
     let mut sums: Vec<Vec<f32>> = Vec::new(); let mut denoms: Vec<Vec<f32>> = Vec::new();
@@ -101,6 +104,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                         //println!("breaking phaseblock loop because i didnt get next variant"); 
                         break 'phaseblockloop },
                 };
+                println!("next variant {} of {} and {}", variant, kmer_ids_to_kmer.get(&variant).unwrap(), kmer_ids_to_kmer.get(&-variant).unwrap());
                 // add our new variant
                 //println!("{}\t{}",variant, connections);
                 variant_window.add_variant(&variants, &molecules, variant);
@@ -108,7 +112,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                 mol_connections.push(connections);
                 let vardex = variant.abs() as usize;
                 new_variants.push(vardex);
-                for molecule in &variants[vardex] {
+                for molecule in &variants[vardex - 1] {
                     let moldex = molecule.abs();
                     if !used_mols.contains(&moldex) {
                         let mut mol: Vec<i32> = Vec::new();
@@ -141,7 +145,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                     phasing_str = phasing_info.get(&(*vardex as i32)).unwrap().to_string();
                 }
                 println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}", new_iterations[index], vardex, chrom, pos, reference, alt, ps, 
-                    phasing_str, mol_connections[index],cluster_centers[0][*vardex],cluster_centers[1][*vardex]);
+                    phasing_str, mol_connections[index], cluster_centers[0][*vardex], cluster_centers[1][*vardex]);
             }
         }
     }
@@ -156,6 +160,7 @@ fn log_sum_exp(p: &Vec<f32>) -> f32{
 fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32>>, 
     new_variants: &Vec<usize>, cluster_support: &mut Vec<f32>, touched: &Vec<bool>,
     denoms: &mut Vec<Vec<f32>>, sums: &mut Vec<Vec<f32>>) {
+    println!("next cluster step, num molecules {}", molecules.len());
     let mut vardex; let mut moldex; let mut varval; let mut molval;
     let mut iteration = 0;
     let mut change = 1.0;
@@ -169,7 +174,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
             }
         } 
         // Expectation
-        for (_mol_num, molecule_variants) in molecules.iter().enumerate() {
+        for (mol_num, molecule_variants) in molecules.iter().enumerate() {
             //let mut sum = 0.0;
             let mut count = 0;
             
@@ -178,7 +183,13 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                 if touched[var] { count += 1; }
             }
             if count < 2 { continue; }
+            println!("molecule {}",mol_num);
+            print!("checking sort\t");
+            for variant in molecule_variants {
+                print!("{}\t", variant);
+            }println!();
             for cluster in 0..cluster_centers.len() {
+                //println!("\tcluster {}",cluster);
                 cluster_support[cluster] = 0.0;
                 for variant in molecule_variants {
                     let var = variant.abs() as usize;
@@ -188,6 +199,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                     } else {
                         cluster_support[cluster] += (1.0 - cluster_centers[cluster][var]).ln();
                     }
+                    println!("\t\tvariant {}, log cluster support {}",variant, cluster_support[cluster]);
                     //assert!(!cluster_support[cluster].is_infinite(), "infinite value, cluster center {}", cluster_centers[cluster][var]);
                     //if cluster_support[cluster].is_infinite() {
                     //    println!("infinite value, cluster_center {}",cluster_centers[cluster][var]);
@@ -199,6 +211,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
             for cluster in 0..cluster_centers.len() { 
                 cluster_support[cluster] -= sum; 
                 cluster_support[cluster] = cluster_support[cluster].exp(); 
+                println!("\t\t final cluter support for cluster {} is {}",cluster, cluster_support[cluster]);
             }
             vardex = 0; moldex = 0; varval = new_variants[vardex]; molval = molecule_variants[moldex].abs() as usize;
             loop {
@@ -280,7 +293,7 @@ struct VariantRecruiter {
 
 impl VariantRecruiter { 
     fn new(variants: &Vec<Vec<i32>>, _molecules: &HashMap<i32, Vec<i32>>) -> VariantRecruiter {
-        let seed: [u8; 32] = [1; 32];
+        let seed: [u8; 32] = [4; 32];
         let rng: StdRng = SeedableRng::from_seed(seed);
         VariantRecruiter{
             variants_visited: BitVec::from_elem(variants.len() + 1, false),
@@ -305,13 +318,13 @@ impl VariantRecruiter {
 
     fn add_variant(&mut self, variants: &Vec<Vec<i32>>, molecules: &HashMap<i32, Vec<i32>>, variant: i32) {
         let variant = variant.abs();
-        self.variants_visited.set(variant as usize, true);
+        self.variants_visited.set(variant as usize, true); // variants_visited is the i32.abs() not the index
         //println!("Adding variant {} with {} connections to current molecule set", variant, connections);
         let mut mols: HashSet<i32> = HashSet::default();
         self.iteration += 1;
-        for mol in &variants[variant as usize] {
-            mols.insert(*mol);
+        for mol in &variants[(variant - 1) as usize] {
             let mol = mol.abs();
+            mols.insert(mol);
             self.molecule_last_seen.insert(mol, self.iteration);
             // for each new molecule we touch, go through their variants and add or update them to potential_variants and potential_variant_scores
             if !self.current_molecules_variants.contains_key(&mol) {
@@ -416,7 +429,7 @@ fn eat_i32<R: Read>(reader: &mut BufReader<R>, buf: &mut [u8;4]) -> Option<i32> 
     Some(LittleEndian::read_i32(buf))
 }
 
-fn load_molecule_kmers(params: &Params) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>>){
+fn load_molecule_kmers(params: &Params, kmer_id_to_kmer: &HashMap<i32, String>) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>>){
     let f = File::open(params.variants.to_string()).expect("Unable to open file");
     let mut reader = BufReader::new(f);
     let mut variants: HashMap<i32, HashSet<i32>> = HashMap::new(); // map from variant_id to list of molecule_ids
@@ -431,13 +444,15 @@ fn load_molecule_kmers(params: &Params) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>
                 if barcode_id == 0 && kmer_id == 0 { break; } // only dealing with 10x data so far
                 let bc_vars = molecules.entry(barcode_id).or_insert(HashSet::new());
                 bc_vars.insert(kmer_id);
-                let var_bcs = variants.entry(kmer_id).or_insert(HashSet::new());
+                //println!("bc {} kmer id {}",barcode_id, kmer_id);
+                let var_bcs = variants.entry(kmer_id.abs()).or_insert(HashSet::new());
                 if kmer_id < 0 { var_bcs.insert(-barcode_id); } else { var_bcs.insert(barcode_id); }
                 if kmer_id.abs() > max_var { max_var = kmer_id.abs() }
                 if barcode_id > max_molid { max_molid = barcode_id; }
             } else { break; }
         } else { break; }
     }
+    /**
     let mut mol_id = max_molid + 1;
     loop { // now deal with hic data, format is 2 i32s, if i get to 2 0's we are done
         if let Some(kmer_id1) = eat_i32(&mut reader, &mut bufi32) {
@@ -449,7 +464,29 @@ fn load_molecule_kmers(params: &Params) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>
                 mol_id += 1;
             } else { break; }
         } else { break; }
+    }**/
+    let mut bad_vars = 0;
+    let mut vars_to_remove: Vec<i32> = Vec::new();
+    for (var, var_mols) in variants.iter() {
+        let mut mols: HashSet<i32> = HashSet::new();
+        for mol in var_mols.iter() {
+            mols.insert(mol.abs());
+        }
+        if mols.len() + 1 < var_mols.len() {
+            bad_vars += 1;
+            //println!("bad variant {}, {} mols with both versions, {} total mols with either.", kmer_id_to_kmer.get(var).unwrap(), var_mols.len() - mols.len(), mols.len());
+            for mol in var_mols.iter() {
+                molecules.get_mut(&mol.abs()).unwrap().remove(var);
+                molecules.get_mut(&mol.abs()).unwrap().remove(&-var); 
+            }
+            vars_to_remove.push(var.abs());
+        }
     }
+    for var in vars_to_remove {
+        variants.insert(var, HashSet::new());
+    }
+    println!("found {} bad vars", bad_vars);
+    /**
     mol_id += 1; //
     'outer: loop { // ok here we go again. Pacbio/longread data. Format is i32s until you hit a zero. when you hit two zeros you are done
         let mut vars: HashSet<i32> = HashSet::new();
@@ -464,7 +501,7 @@ fn load_molecule_kmers(params: &Params) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>
         }
         if vars.len() > 1 { molecules.insert(mol_id, vars); mol_id += 1; }
     }
-
+    **/
     let mut vars: Vec<Vec<i32>> = Vec::new();
     for _i in 0..max_var {
         vars.push(Vec::new());
@@ -483,7 +520,55 @@ fn load_molecule_kmers(params: &Params) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>
     for i in 0..max_var {
         vars[i as usize].sort_by(| a, b | a.abs().cmp(&b.abs()));
     }
+    println!("reducing to good molecules");
+    mols.retain(|_key, value| value.len() > 5 && value.len() < 5000); // remember to get rid of this, replace with > 1 or > 2 or 3
+    println!("{} good molecules",mols.len());
+    for vardex in 0..vars.len() {
+        let mut mol: Vec<i32> = Vec::new();
+        for moldex in 0..vars[vardex].len() {
+            if mols.contains_key(&vars[vardex][moldex].abs()) {
+                mol.push(vars[vardex][moldex]);
+            }
+        }
+        vars[vardex] = mol;
+    }
+    //println!("EPIC DEBUG1 vars");
+    //for (varid, mollist) in vars.iter().enumerate() {
+    //    println!("var {}", varid);
+    //    for mol in mollist.iter() { println!("\t mol {}", mol); }
+    //}
+    //println!("EPIC DEBUG2 mols");
+    //for (mol, varlist) in mols.iter() {
+    //    println!("mol {}", mol);
+    //    for var in varlist { println!("\t var {}", var); }
+    //}
     (vars, mols)
+}
+
+fn load_kmers(kmerfile: String) -> HashMap<i32, String> {
+    let mut kmers: HashMap<i32, String> = HashMap::default();
+    let mut kmer_id: i32 = 1; // no 0 kmer id as we are using sign for which of the pair
+        let reader = File::open(kmerfile).expect("cannot open barcode file");
+        let mut reader = BufReader::new(reader);
+        let mut buf = vec![];
+        loop {
+            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+            if bytes == 0 { break; } 
+            kmers.insert(kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());
+            buf.clear();
+            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+            if bytes == 0 { break; } 
+            buf.clear();
+            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+            if bytes == 0 { break; } 
+            kmers.insert(-kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());           
+            buf.clear();
+            let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read file");
+            if bytes == 0 { break; } 
+            buf.clear();
+            kmer_id += 1;
+    }
+    kmers
 }
 
 #[allow(dead_code)]
