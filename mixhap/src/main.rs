@@ -30,8 +30,8 @@ fn main() {
     //let whitelist = load_whitelist(&params); // map from barcode string to index in whitelist
     //println!("whitelist loaded");
     //let (variants, barcodes, info, phasing) = load_variants(&params, &whitelist); 
-    let kmer_ids_to_kmer = load_kmers("/lustre/scratch118/malaria/team222/hh5/projects/analysis/assembly/arabiensis/het_kmers_10x4/het_kmers.tsv".to_string());
-    let (variants, barcodes) = load_molecule_kmers(&params, &kmer_ids_to_kmer);
+    let (kmer_ids_to_kmer, kmer_counts) = load_kmers("/lustre/scratch118/malaria/team222/hh5/projects/analysis/assembly/arabiensis/het_kmers_10x4/het_kmers.tsv".to_string());
+    let (variants, barcodes, kmer_bc_counts) = load_molecule_kmers(&params, &kmer_ids_to_kmer);
     //let phasing = None;
     //let info = None;
 
@@ -42,7 +42,7 @@ fn main() {
     //println!("testing, I have this many molecules {}", barcodes.len());
     //let (variants, molecules) = extract_molecules(variants, barcodes);
     
-    phuzzy_phaser_master(barcodes, variants, params.ploidy, None, None, kmer_ids_to_kmer);
+    phuzzy_phaser_master(barcodes, variants, params.ploidy, None, None, kmer_ids_to_kmer, kmer_counts, kmer_bc_counts);
 }
 
 
@@ -52,11 +52,12 @@ fn main() {
 fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32>>, 
         num_clusters: usize, phasing: Option<HashMap<i32, String>>, 
         info: Option<HashMap<i32, (String, i32, String, String, String)>>,
-        kmer_ids_to_kmer: HashMap<i32, String>) {
+        kmer_ids_to_kmer: HashMap<i32, String>,
+        kmer_counts: HashMap<i32, i32>, kmer_bc_counts: HashMap<i32,i32>) {
     let mut cluster_support: Vec<f32> = Vec::new(); // to be reused
     for _cluster in 0..num_clusters { cluster_support.push(0.0); } //initialize
     let mut sums: Vec<Vec<f32>> = Vec::new(); let mut denoms: Vec<Vec<f32>> = Vec::new();
-    let vars_per_step = 20;
+    let vars_per_step = 50;
     for cluster in 0..num_clusters {
         denoms.push(Vec::new()); sums.push(Vec::new());
         for _ in 0..vars_per_step { denoms[cluster].push(0.0); sums[cluster].push(0.0); }
@@ -79,7 +80,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
     let mut first_varset: Vec<i32> = Vec::new();
     let directions: [i32; 2] = [1, -1];
     let mut variant_window = VariantRecruiter::new(&variants, &molecules);
-    println!("iteration\tvardex\tchrom\tpos\tref\talt\tLR_ps\tLR_gt\tconnections\thap1\thap2");
+    println!("iteration\tvardex\tchrom\tpos\tref\talt\tLR_ps\tLR_gt\tconnections\tref_counts\talt_counts\tref_bc_counts\talt_bc_counts\thap1\thap2");
     for direction in &directions { 
         let mut total_variants: i32 = 0;
         if *direction == -1 && total_variants == 0 {
@@ -92,7 +93,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
         'phaseblockloop: loop {
             let mut new_variants: Vec<usize> = Vec::new();
             let mut current_molecules: Vec<Vec<i32>> = Vec::new();
-            let mut used_mols: HashSet<i32> = HashSet::default();
+            //let mut used_mols: HashSet<i32> = HashSet::default();
             let mut mol_connections: Vec<u32> = Vec::new();
             let mut new_iterations: Vec<i32> = Vec::new();
             for _i in 0..vars_per_step {
@@ -104,7 +105,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                         //println!("breaking phaseblock loop because i didnt get next variant"); 
                         break 'phaseblockloop },
                 };
-                println!("next variant {} of {} and {}", variant, kmer_ids_to_kmer.get(&variant).unwrap(), kmer_ids_to_kmer.get(&-variant).unwrap());
+                //println!("next variant {} of {} and {}", variant, kmer_ids_to_kmer.get(&variant).unwrap(), kmer_ids_to_kmer.get(&-variant).unwrap());
                 // add our new variant
                 //println!("{}\t{}",variant, connections);
                 variant_window.add_variant(&variants, &molecules, variant);
@@ -114,7 +115,7 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                 new_variants.push(vardex);
                 for molecule in &variants[vardex - 1] {
                     let moldex = molecule.abs();
-                    if !used_mols.contains(&moldex) {
+                    //if !used_mols.contains(&moldex) { // IS THIS NECESSARY? SEEMS TO WORK BETTER WITHOUT. I HAVE NO IDEA WHY
                         let mut mol: Vec<i32> = Vec::new();
                         for var in molecules.get(&moldex).unwrap() {
                             let vardex = var.abs();
@@ -123,19 +124,19 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                             }
                         }
                         current_molecules.push(mol);
-                        used_mols.insert(moldex);
-                    } 
+                        //used_mols.insert(moldex);
+                    //} 
                 }     
             }
             new_variants.sort(); 
             for variant in &new_variants { touched_vars[*variant] = true; }
             next_cluster_step(current_molecules, &mut cluster_centers, &new_variants, &mut cluster_support, &touched_vars, &mut denoms, &mut sums);
             for (index, vardex) in new_variants.iter().enumerate() {
-                let mut chrom: String = "none".to_string();
-                let mut pos: i32 = 0; 
-                let mut reference: String = "ref".to_string();
-                let mut alt: String = "alt".to_string();
-                let mut ps: String = "no_ps".to_string();
+                let mut chrom: String = "n/a".to_string();
+                let mut pos: i32 = -1; 
+                let mut reference: String = kmer_ids_to_kmer.get(&(*vardex as i32)).unwrap().to_string();
+                let mut alt: String = kmer_ids_to_kmer.get(&-(*vardex as i32)).unwrap().to_string();
+                let mut ps: String = "n/a".to_string();
                 if let Some(some_info) = &info {
                     let (chrom1, pos1, reference1, alt1, ps1) = some_info.get(&(*vardex as i32)).unwrap();
                     chrom = chrom1.to_string(); pos = *pos1; reference = reference1.to_string(); alt = alt1.to_string(); ps = ps1.to_string();
@@ -144,8 +145,23 @@ fn phuzzy_phaser_master(molecules: HashMap<i32, Vec<i32>>, variants: Vec<Vec<i32
                 if let Some(phasing_info) = &phasing {
                     phasing_str = phasing_info.get(&(*vardex as i32)).unwrap().to_string();
                 }
-                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}", new_iterations[index], vardex, chrom, pos, reference, alt, ps, 
-                    phasing_str, mol_connections[index], cluster_centers[0][*vardex], cluster_centers[1][*vardex]);
+                //let refcounts = kmer_counts.get(&(*vardex as i32)).unwrap();
+                //let altcounts = kmer_counts.get(&-(*vardex as i32)).unwrap();
+                //let refbccounts = kmer_bc_counts.get(&(*vardex as i32)).unwrap();
+                //let altbccounts = kmer_bc_counts.get(&-(*vardex as i32)).unwrap();
+                //let refwincounts = match current_variant_molecules.get(&(*vardex as i32)) {
+                //    Some(x) => x,
+                //    None => &0,
+                //};
+                //let altwincounts = match current_variant_molecules.get(&-(*vardex as i32)) {
+                //    Some(x) => x,
+                //    None => &0,
+                //};
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{:.2}", 
+                    new_iterations[index], vardex, chrom, pos, reference, alt, ps, 
+                    phasing_str, (mol_connections[index] as f32)/1000.0, 
+                    //refcounts, altcounts, refbccounts, altbccounts, //refwincounts, altwincounts,
+                    cluster_centers[0][*vardex], cluster_centers[1][*vardex]);
             }
         }
     }
@@ -160,7 +176,7 @@ fn log_sum_exp(p: &Vec<f32>) -> f32{
 fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32>>, 
     new_variants: &Vec<usize>, cluster_support: &mut Vec<f32>, touched: &Vec<bool>,
     denoms: &mut Vec<Vec<f32>>, sums: &mut Vec<Vec<f32>>) {
-    println!("next cluster step, num molecules {}", molecules.len());
+    //println!("next cluster step, num molecules {}", molecules.len());
     let mut vardex; let mut moldex; let mut varval; let mut molval;
     let mut iteration = 0;
     let mut change = 1.0;
@@ -174,6 +190,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
             }
         } 
         // Expectation
+        //println!("next iteration");
         for (mol_num, molecule_variants) in molecules.iter().enumerate() {
             //let mut sum = 0.0;
             let mut count = 0;
@@ -183,11 +200,11 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                 if touched[var] { count += 1; }
             }
             if count < 2 { continue; }
-            println!("molecule {}",mol_num);
-            print!("checking sort\t");
-            for variant in molecule_variants {
-                print!("{}\t", variant);
-            }println!();
+            //println!("molecule {}",mol_num);
+            //print!("checking sort\t");
+            //for variant in molecule_variants {
+            //    print!("{}\t", variant);
+            //}println!();
             for cluster in 0..cluster_centers.len() {
                 //println!("\tcluster {}",cluster);
                 cluster_support[cluster] = 0.0;
@@ -196,24 +213,22 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                     if !touched[var] { continue; } // reach into old stuff and current stuff, not new new stuff.
                     if variant > &0 {
                         cluster_support[cluster] += cluster_centers[cluster][var].ln();
+                        //print!("\t{}",cluster_centers[cluster][var].ln());
                     } else {
                         cluster_support[cluster] += (1.0 - cluster_centers[cluster][var]).ln();
+                        //print!("\t{}",(1.0 - cluster_centers[cluster][var]).ln());
                     }
-                    println!("\t\tvariant {}, log cluster support {}",variant, cluster_support[cluster]);
-                    //assert!(!cluster_support[cluster].is_infinite(), "infinite value, cluster center {}", cluster_centers[cluster][var]);
-                    //if cluster_support[cluster].is_infinite() {
-                    //    println!("infinite value, cluster_center {}",cluster_centers[cluster][var]);
-                    //    assert!(false);
-                    //}
                 }
+                //println!();
             }
             let sum = log_sum_exp(cluster_support);
             for cluster in 0..cluster_centers.len() { 
                 cluster_support[cluster] -= sum; 
                 cluster_support[cluster] = cluster_support[cluster].exp(); 
-                println!("\t\t final cluter support for cluster {} is {}",cluster, cluster_support[cluster]);
+                //println!("\t\t final cluter support for cluster {} is {}",cluster, cluster_support[cluster]);
             }
             vardex = 0; moldex = 0; varval = new_variants[vardex]; molval = molecule_variants[moldex].abs() as usize;
+            let mut window_hits = 0;
             loop {
                 if varval > molval { 
                     moldex += 1; if moldex >= molecule_variants.len() { break; } molval = molecule_variants[moldex].abs() as usize; 
@@ -221,6 +236,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                     vardex += 1; if vardex >= new_variants.len() { break; } varval = new_variants[vardex];
                 } else {
                     // actually update things
+                    window_hits += 1;
                     for cluster in 0..cluster_centers.len() {
                         denoms[cluster][vardex] += cluster_support[cluster];
                         if molecule_variants[moldex] > 0 {
@@ -231,6 +247,7 @@ fn next_cluster_step(molecules: Vec<Vec<i32>>, cluster_centers: &mut Vec<Vec<f32
                     vardex += 1;  if vardex >= new_variants.len() { break; }  varval = new_variants[vardex];
                 }
             }
+            //println!("\t\tmolecule hit {} variants in active window", window_hits);
         }
         // Maximization
         change = 0.0;
@@ -429,9 +446,10 @@ fn eat_i32<R: Read>(reader: &mut BufReader<R>, buf: &mut [u8;4]) -> Option<i32> 
     Some(LittleEndian::read_i32(buf))
 }
 
-fn load_molecule_kmers(params: &Params, kmer_id_to_kmer: &HashMap<i32, String>) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>>){
+fn load_molecule_kmers(params: &Params, kmer_id_to_kmer: &HashMap<i32, String>) -> (Vec<Vec<i32>>, HashMap<i32, Vec<i32>>, HashMap<i32, i32>){
     let f = File::open(params.variants.to_string()).expect("Unable to open file");
     let mut reader = BufReader::new(f);
+    let mut kmer_bc_counts: HashMap<i32, i32> = HashMap::new();
     let mut variants: HashMap<i32, HashSet<i32>> = HashMap::new(); // map from variant_id to list of molecule_ids
     let mut molecules: HashMap<i32, HashSet<i32>> = HashMap::new(); //map from molecule_id to list of variant_ids
     let mut hic_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
@@ -531,7 +549,15 @@ fn load_molecule_kmers(params: &Params, kmer_id_to_kmer: &HashMap<i32, String>) 
             }
         }
         vars[vardex] = mol;
+        let mut neg = 0;
+        let mut pos = 0;
+        for mol in vars[vardex].iter() {
+            if *mol > 0 { pos += 1; } else { neg += 1; }
+            kmer_bc_counts.insert((vardex+1) as i32, pos);
+            kmer_bc_counts.insert(-((vardex+1) as i32), neg);
+        }
     }
+
     //println!("EPIC DEBUG1 vars");
     //for (varid, mollist) in vars.iter().enumerate() {
     //    println!("var {}", varid);
@@ -542,33 +568,38 @@ fn load_molecule_kmers(params: &Params, kmer_id_to_kmer: &HashMap<i32, String>) 
     //    println!("mol {}", mol);
     //    for var in varlist { println!("\t var {}", var); }
     //}
-    (vars, mols)
+    (vars, mols, kmer_bc_counts)
 }
 
-fn load_kmers(kmerfile: String) -> HashMap<i32, String> {
+fn load_kmers(kmerfile: String) -> (HashMap<i32, String>, HashMap<i32, i32>) {
     let mut kmers: HashMap<i32, String> = HashMap::default();
     let mut kmer_id: i32 = 1; // no 0 kmer id as we are using sign for which of the pair
-        let reader = File::open(kmerfile).expect("cannot open barcode file");
-        let mut reader = BufReader::new(reader);
-        let mut buf = vec![];
-        loop {
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            kmers.insert(kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());
-            buf.clear();
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            buf.clear();
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            kmers.insert(-kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());           
-            buf.clear();
-            let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            buf.clear();
-            kmer_id += 1;
+    let mut kmer_counts: HashMap<i32, i32> = HashMap::new();
+    let reader = File::open(kmerfile).expect("cannot open barcode file");
+    let mut reader = BufReader::new(reader);
+    let mut buf = vec![];
+    loop {
+        let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+        if bytes == 0 { break; } 
+        kmers.insert(kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());
+        buf.clear();
+        let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+        if bytes == 0 { break; } 
+        let count = std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string().parse::<i32>().unwrap();
+        kmer_counts.insert(kmer_id, count);
+        buf.clear();
+        let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
+        if bytes == 0 { break; } 
+        kmers.insert(-kmer_id, std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string());           
+        buf.clear();
+        let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read file");
+        if bytes == 0 { break; } 
+        let count = std::str::from_utf8(&buf[0..(bytes-1)]).unwrap().to_string().parse::<i32>().unwrap();
+        kmer_counts.insert(-kmer_id, count);
+        buf.clear();
+        kmer_id += 1;
     }
-    kmers
+    (kmers, kmer_counts)
 }
 
 #[allow(dead_code)]

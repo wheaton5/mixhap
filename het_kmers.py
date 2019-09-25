@@ -20,7 +20,7 @@ mypath = os.path.dirname(os.path.realpath(__file__))
 cmd = ["singularity", "exec", mypath+"/kmc.sif", "kmc", "-k"+str(args.kmer_size)]
 if args.input[-3:] == 'bam':
     cmd.append('-fbam')
-cmd.extend(["-ci10", "-t"+str(args.threads), "-m"+str(args.memory), "-sm", "@"+args.input, args.output+"/"+args.output, args.tmp])
+cmd.extend(["-ci4", "-t"+str(args.threads), "-m"+str(args.memory), "-sm", "@"+args.input, args.output+"/"+args.output, args.tmp])
 with open(args.output+"/kmc.out",'w') as out:
     with open(args.output+"/kmc.err",'w') as err:
         subprocess.check_call(cmd, stdout=out, stderr=err)
