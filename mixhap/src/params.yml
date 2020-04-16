@@ -21,3 +21,37 @@ args:
         takes_value: true
         required: true
         help: barcode whitelist from 10x genomics longranger 
+    - kmers:
+        long: kmers
+        takes_value: true
+        required: true
+        help: het_kmers.tsv file from het_snp_kmers
+    - txg_mols:
+        long: txg_mols
+        takes_value: true
+        multiple: true
+        required: true
+        help: 10x genomics linked read molecule binary file out of molecule_kmers program
+    - longread_mols:
+        long: longread_mols
+        takes_value: true
+        multiple: true
+        required: true
+        help: longread molecule binary file out of molecule_kmers program
+    - longread_fqs:
+        long: longread_fqs
+        takes_value: true
+        multiple: true
+        required: true
+        help: longread fastq files (must match order of longread_mols)
+    - hic_mols:
+        long: hic_mols
+        takes_value: true
+        multiple: true
+        required: true
+        help: hic molecule binary file out of molecule_kmers program
+    - output:
+        long: output
+        takes_value: true
+        required: true
+        help: output_directory

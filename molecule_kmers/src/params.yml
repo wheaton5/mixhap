@@ -7,7 +7,8 @@ args:
         long: output
         short: o
         takes_value: true
-        help: output file name (will be a binary file)
+        required: true
+        help: output directory
     - paired_kmers:
         long: paired_kmers
         short: p

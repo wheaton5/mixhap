@@ -12,13 +12,15 @@ use needletail::Sequence;
 use flate2::read::GzDecoder;
 use std::io::BufReader;
 use std::io::BufRead;
-use std::fs::File;
 use std::io::Read;
-use std::io::Write;
 use itertools::izip;
 use byteorder::{WriteBytesExt, LittleEndian};
 
-use hashbrown::{HashMap};
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
+use hashbrown::{HashMap, HashSet};
+use std::str;
 //use fnv::FnvHasher;
 //use std::hash::BuildHasherDefault;
 //type FnvHashMap<T,V> = HashMap<T,V, BuildHasherDefault<FnvHasher>>;
@@ -29,86 +31,129 @@ use clap::{App};
 
 fn main() {
     let params = load_params();
-    let kmers = load_kmers(&params);
+    eprintln!("load kmers");
+    let (kmers, kmer_type) = load_kmers(&params);
     eprintln!("txg");
-    process_txg(&params, &kmers);
+    //process_txg(&params, &kmers);
     eprintln!("hic");
-    process_hic(&params, &kmers);
+    process_hic(&params, &kmer_type);
     eprintln!("longreads");
     process_longreads(&params, &kmers);
 }
 
-fn load_kmers(params: &Params) -> HashMap<Vec<u8>, i32> {
+struct Kmers {
+    paired_hets: HashMap<Vec<u8>, i32>,
+    unpaired_hets: HashMap<Vec<u8>, i32>,
+    homozygous: HashMap<Vec<u8>, i32>,
+}
+
+#[derive(Debug)]
+#[derive(PartialEq)]
+enum KMER_TYPE {
+    PAIRED_HET,
+    UNPAIRED_HET,
+    HOM,
+}
+
+fn load_kmers(params: &Params) -> (HashMap<Vec<u8>, i32>, HashMap<Vec<u8>, (i32, KMER_TYPE)>) {
     let mut kmers: HashMap<Vec<u8>, i32> = HashMap::default();
     let mut kmer_id: i32 = 1; // no 0 kmer id as we are using sign for which of the pair
+    let mut kmer_type: HashMap<Vec<u8>, (i32, KMER_TYPE)> = HashMap::new();
     if let Some(het_kmers) = &params.paired_kmers {
         let reader = File::open(het_kmers).expect("cannot open barcode file");
         let mut reader = BufReader::new(reader);
-        let mut buf = vec![];
+        let mut buf1 = vec![];
+        let mut buf2 = vec![];
+        let mut buf3 = vec![];
+        let mut buf4 = vec![];
         loop {
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            kmers.insert(buf[0..(bytes-1)].to_vec(), kmer_id);
-            buf.clear();
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            buf.clear();
-            let bytes = reader.read_until(b'\t', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            kmers.insert(buf[0..(bytes-1)].to_vec(), -kmer_id);           
-            buf.clear();
-            let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read file");
-            if bytes == 0 { break; } 
-            buf.clear();
+            buf1.clear(); buf2.clear(); buf3.clear(); buf4.clear();
+            let bytes1 = reader.read_until(b'\t', &mut buf1).expect("cannot read file");
+            if bytes1 == 0 { break; } 
+            
+            let bytes2 = reader.read_until(b'\t', &mut buf2).expect("cannot read file");
+            if bytes2 == 0 { break; } 
+            
+            let bytes3 = reader.read_until(b'\t', &mut buf3).expect("cannot read file");
+            if bytes3 == 0 { break; }
+            
+            let tag = str::from_utf8(&buf3).unwrap();
+            let first = str::from_utf8(&buf1).unwrap();
+            if tag == "HOM\t" {
+                kmer_type.insert(buf1[0..(bytes1-1)].to_vec(), (kmer_id, KMER_TYPE::HOM));
+                //eprintln!("got HOM {}",first);
+                kmers.insert(buf1[0..(bytes1-1)].to_vec(), kmer_id);
+            } else if tag == "HET\t" {
+                kmer_type.insert(buf1[0..(bytes1-1)].to_vec(), (kmer_id, KMER_TYPE::UNPAIRED_HET));
+                //eprintln!("got HET {}",first);
+                kmers.insert(buf1[0..(bytes1-1)].to_vec(), kmer_id);
+            } else {
+                //eprintln!("ok just paired het {}",tag);
+                kmer_type.insert(buf1[0..(bytes1-1)].to_vec(), (kmer_id, KMER_TYPE::PAIRED_HET));
+                kmer_type.insert(buf3[0..(bytes1-1)].to_vec(), (-kmer_id, KMER_TYPE::PAIRED_HET));
+                kmers.insert(buf1[0..(bytes1-1)].to_vec(), kmer_id);
+                kmers.insert(buf3[0..(bytes3-1)].to_vec(), -kmer_id);  
+            }         
+            let bytes4 = reader.read_until(b'\n', &mut buf4).expect("cannot read file");
+            if bytes4 == 0 { break; } 
+            
             kmer_id += 1;
         }
     }
-    kmers
+    (kmers, kmer_type)
 }
 
 fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>) {
     let reads = &params.long_reads;
-    write_2_zeros(); // delimiter, this file format isnt great
-    let mut to_iterate: Vec<String> = Vec::new();
-    for read in reads {
-        to_iterate.push(read.to_string());
+    //write_2_zeros(); // delimiter, this file format isnt great
+    let mut to_iterate: Vec<(usize, String)> = Vec::new();
+    for (filenum, read) in reads.iter().enumerate() {
+        to_iterate.push((filenum, read.to_string()));
     }
-    to_iterate.par_iter().for_each(|read_file| {
+    to_iterate.par_iter().for_each(|(filenum, read_file)| {
         let mut reader = get_reader(read_file.to_string());
         let mut current_readname = String::new();
         let mut buf = vec![];
         let mut linedex = 0;
-        let mut vars: HashMap<i32, [u8; 2]> = HashMap::new(); // going to count how many of each allele across subreads to do consensus
+
+        let writer = File::create(format!("{}/molecules_longreads_{:03}.bin",params.output,filenum))
+            .expect("Unable to create file");
+        let mut writer = BufWriter::new(writer);
+        //let mut vars: HashMap<i32, [u8; 2]> = HashMap::new(); // going to count how many of each allele across subreads to do consensus
+        let mut vars: HashSet<i32> = HashSet::new();
         loop {
-                eprintln!("linedex {} readname {}", linedex, current_readname);
             let bytes = reader.read_until(b'\n', &mut buf).expect("cannot read longread fastq");
-            if bytes == 0 { handle_subreads(&vars); break; } // actually i need to deal with last subread here
+            if bytes == 0 { handle_subreads(&vars, &mut writer); break; } // actually i need to deal with last subread here
             if linedex % 4 == 0 {
                 let readname = std::str::from_utf8(&buf).unwrap();
                 if current_readname != readname {
-                    handle_subreads(&vars);// do stuff for last read
+                    handle_subreads(&vars, &mut writer);// do stuff for last read
                     vars.clear();
                     current_readname = readname.to_string();
                 }
+                else { println!("subread of same read");}
             } else if linedex % 4 == 1 {
                 let seq = &buf.sequence(); 
                 let seq = seq.normalize(false);
                 let rc = seq.reverse_complement();
                 for (_, kmer, _) in seq.canonical_kmers(21, &rc) {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
-                        let counts = vars.entry(kmer_id.abs()).or_insert([0u8; 2]);
-                        if kmer_id < &0 { counts[1] += 1; } else { counts[0] += 1; }
+                        //let counts = vars.entry(kmer_id.abs()).or_insert([0u8; 2]);
+                        //if kmer_id < &0 { counts[1] += 1; } else { counts[0] += 1; }
+                        vars.insert(*kmer_id);
                     }
                 }                
             }
             linedex += 1; buf.clear();
         }        
-    });    
+    });
 }
 
-fn handle_subreads(vars: &HashMap<i32, [u8; 2]>) {
+//fn handle_subreads(vars: &HashMap<i32, [u8; 2]>) {
+fn handle_subreads(vars: &HashSet<i32>, writer: &mut Write) {
     let mut result: Vec<u8> = Vec::new();
     let mut to_output: Vec<i32> = Vec::new();
+    /*
     for (kmer_id, counts) in vars.iter() {
         if counts[0] > 3*counts[1] {
             to_output.push(*kmer_id);
@@ -116,28 +161,38 @@ fn handle_subreads(vars: &HashMap<i32, [u8; 2]>) {
             to_output.push(-kmer_id);
         }
     }
-    if to_output.len() > 1 {
-        for kmer in to_output {
-           result.write_i32::<LittleEndian>(kmer).expect("fail"); 
-        } 
-        std::io::stdout().lock().write_all(&result).expect("fail");
-        write_1_zero();
+    */
+    for kmer_id in vars.iter() {
+        to_output.push(*kmer_id);
     }
+    //if to_output.len() > 1 { // write 1 entry for every read (multiple subreads per read) even if there are no kmers... will make figuring out which 
+        for kmer in to_output {
+           result.write_i32::<LittleEndian>(kmer).expect("write fail"); 
+        } 
+        result.write_i32::<LittleEndian>(0).expect("buffer fill fail");
+        //std::io::stdout().lock().write_all(&result).expect("fail");
+        //write_1_zero();
+        writer.write_all(&result).expect("write fail");
+    //}
 }
 
-fn process_hic(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>) {
+fn process_hic(params: &Params, kmer_type: &HashMap<Vec<u8>, (i32, KMER_TYPE)>) {
     let read1s = &params.hic_r1s;
     let read2s = &params.hic_r2s;
-    let mut to_iterate: Vec<(String, String)> = Vec::new();
-    write_2_zeros(); // delimiter
-    for (r1, r2) in izip!(read1s, read2s) {
-        to_iterate.push((r1.to_string(), r2.to_string()));
+    let mut to_iterate: Vec<(usize, String, String)> = Vec::new();
+    for (filenum, r1, r2) in izip!(0..read1s.len(), read1s, read2s) {
+        to_iterate.push((filenum, r1.to_string(), r2.to_string()));
     }
-    to_iterate.par_iter().for_each(|(r1_file, r2_file)| {
+    to_iterate.par_iter().for_each(|(filenum, r1_file, r2_file)| {
         let mut r1_reader = get_reader(r1_file.to_string());
         let mut r2_reader = get_reader(r2_file.to_string()); 
         let mut buf1 = vec![];
         let mut buf2 = vec![];
+
+        let writer = File::create(format!("{}/molecules_hic_{:03}.bin",params.output,filenum))
+            .expect("Unable to create file");
+        let mut writer = BufWriter::new(writer);
+        
         let mut vars: Vec<i32> = Vec::new();
         let mut result: Vec<u8> = Vec::new();
         let mut linedex = 0;
@@ -155,33 +210,39 @@ fn process_hic(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>) {
             let r1_sequence = r1_sequence.normalize(false);
             let r1_rc = r1_sequence.reverse_complement();
             for (_, kmer, _) in r1_sequence.canonical_kmers(21, &r1_rc) {
-                if let Some(kmer_id) = kmer_ids.get(kmer) {
-                    vars.push(*kmer_id);
+                if let Some((kmer_id, kmer_type)) = kmer_type.get(kmer) {
+                    if *kmer_type == KMER_TYPE::PAIRED_HET {
+                        vars.push(*kmer_id);
+                    } 
                 }
             }
             let r2_sequence = &buf2.sequence();
             let r2_sequence = r2_sequence.normalize(false);
             let r2_rc = r2_sequence.reverse_complement();
             for (_, kmer, _) in r2_sequence.canonical_kmers(21, &r2_rc) {
-                if let Some(kmer_id) = kmer_ids.get(kmer) {
-                    vars.push(*kmer_id);
+                if let Some((kmer_id, kmer_type)) = kmer_type.get(kmer) {
+                    if *kmer_type == KMER_TYPE::PAIRED_HET {
+                        vars.push(*kmer_id);
+                    } 
                 }
             }
             if vars.len() > 1 {
-                assert!(vars.len() < 5, "Something weird");
                 for index1 in 0..vars.len() {
-                    for index2 in (index1 + 1)..vars.len() {
-                        result.write_i32::<LittleEndian>(vars[index1]).expect("fail");
-                        result.write_i32::<LittleEndian>(vars[index2]).expect("fail");
-                        std::io::stdout().lock().write_all(&result).expect("fail");
-                        result.clear();
-                    }
+                    result.write_i32::<LittleEndian>(vars[index1]).expect("buffer fill fail");
                 }
+                result.write_i32::<LittleEndian>(0).expect("buffer fill fail");
+                //std::io::stdout().lock().write_all(&result).expect("fail");
+                writer.write_all(&result).expect("write fail");
             }
+            
+            result.clear();
             linedex += 1;
             vars.clear();
-        }        
+        }  
     });
+    //write_1_zero(); 
+    //std::io::stdout().flush().expect("flush failed");
+    //eprintln!("{} hic molecules written",molecules_written);
 }
 
 fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
@@ -190,17 +251,23 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
     let read2s = &params.txg_r2s;
     let read1_trims = &params.txg_trim_r1s;
     let read2_trims = &params.txg_trim_r2s;
-    let mut to_iterate: Vec<(String, usize, String, usize)> = Vec::new();
+    let mut to_iterate: Vec<(usize, String, usize, String, usize)> = Vec::new();
 
-    for (r1_file, r1_trim, r2_file, r2_trim) in izip!(read1s, read1_trims, read2s, read2_trims) {
-        to_iterate.push((r1_file.to_string(), *r1_trim, r2_file.to_string(), *r2_trim));
+    for (filenum, r1_file, r1_trim, r2_file, r2_trim) in 
+        izip!(0..read1s.len(), read1s, read1_trims, read2s, read2_trims) {
+        to_iterate.push((filenum, r1_file.to_string(), *r1_trim, r2_file.to_string(), *r2_trim));
     }
-    to_iterate.par_iter().for_each(|(r1_file, r1_trim, r2_file, r2_trim)| {
+    to_iterate.par_iter().for_each(|(filenum, r1_file, r1_trim, r2_file, r2_trim)| {
         // get readers
         let mut r1_reader = get_reader(r1_file.to_string());
         let mut r2_reader = get_reader(r2_file.to_string());
         let mut buf1 = vec![];
         let mut buf2 = vec![];
+
+        // get writer
+        let writer = File::create(format!("{}/molecules_txg_{:03}.bin",params.output,filenum))
+            .expect("Unable to create file");
+        let mut writer = BufWriter::new(writer);
         let mut linedex = 0;
         let mut result: Vec<u8> = Vec::new();
         loop {
@@ -220,10 +287,12 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 for (_, kmer, _) in r1_sequence.canonical_kmers(21, &r1_rc) {
                 //r1_sequence.canonical_kmers(21, &r1_rc).collect::<Vec<(usize, &[u8], bool)>>().into_par_iter().for_each(|(_, kmer, _)| {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
-                        //println!("{}\t{}", barcode_id, kmer_id);//std::str::from_utf8(&kmer).unwrap()); 
-                        result.write_i32::<LittleEndian>(*barcode_id).expect("fail");
-                        result.write_i32::<LittleEndian>(*kmer_id).expect("fail");
-                        std::io::stdout().lock().write_all(&result).expect("fail");
+                        //eprintln!("txg kmer of type {:?}",kmer_type.get(kmer).unwrap());
+                        //eprintln!("{}\t{}", barcode_id, std::str::from_utf8(&kmer).unwrap()); 
+                        result.write_i32::<LittleEndian>(*barcode_id).expect("buffer fill fail");
+                        result.write_i32::<LittleEndian>(*kmer_id).expect("buffer fail");
+                        //std::io::stdout().lock().write_all(&result).expect("fail");
+                        writer.write_all(&result).expect("write fail");
                         result.clear();
                     }
                 }
@@ -235,9 +304,10 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
                         //println!("{}\t{}", barcode_id, kmer_id);//std::str::from_utf8(&kmer).unwrap()); 
                         let mut result: Vec<u8> = Vec::new();
-                        result.write_i32::<LittleEndian>(*barcode_id).expect("fail");
-                        result.write_i32::<LittleEndian>(*kmer_id).expect("fail");
-                        std::io::stdout().lock().write_all(&result).expect("fail");
+                        result.write_i32::<LittleEndian>(*barcode_id).expect("buffer fill fail");
+                        result.write_i32::<LittleEndian>(*kmer_id).expect("buffer fill fail");
+                        //std::io::stdout().lock().write_all(&result).expect("fail");
+                        writer.write_all(&result).expect("write fail");
                         result.clear();
                     }
                 }
@@ -247,7 +317,8 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
             linedex += 1;
         }
     });
-    std::io::stdout().flush().expect("flush failed");
+    //write_2_zeros(); // delimiter
+    //std::io::stdout().flush().expect("flush failed");
 }
 
 fn load_whitelist(barcode_file: &String) -> HashMap<Vec<u8>, i32> {
@@ -293,6 +364,7 @@ struct Params {
     long_reads: Vec<String>,
     hic_r1s: Vec<String>,
     hic_r2s: Vec<String>,
+    output: String,
 }
 
 fn load_params() -> Params {
@@ -360,7 +432,9 @@ fn load_params() -> Params {
     };
     let mut long_reads: Vec<String> = Vec::new();
     for x in long_reads_tmp { long_reads.push(x.to_string()); }
+    let output = params.value_of("output").unwrap();
     Params{
+        output: output.to_string(),
         paired_kmers: paired_kmers,
         unpaired_kmers: unpaired_kmers,
         txg_r1s: txg_r1s,
