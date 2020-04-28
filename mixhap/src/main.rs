@@ -243,7 +243,8 @@ impl Window {
             self.molecule_last_seen.insert(mol.abs(), self.iteration);
             for var2 in molecules.get_variants(&mol.abs(), KmerType::PairedHet) {
                 let var2 = var2.abs();
-                //let used = used_variants.get(var2 as usize).unwrap();
+                let used = used_variants.get(var2 as usize).unwrap();
+                if used { continue; }
                 if self.variants_tried.contains(&var2) { continue; }
                 let removed = removed_variants.get(var2 as usize).unwrap();
                 if removed { continue; }
@@ -545,7 +546,24 @@ fn assign_long_reads2(phasing: &Phasing, molecules: &Molecules, hom_assignments:
                 second_best_block_count = count;
             }
         }
+        let mut hom_best_block = -1;
+        let mut hom_best_count = 0;
+        let mut hom_block_counts: HashMap<i32, u32> = HashMap::new();
+        for hom in molecules.get_hom_long_read_variants(mol) {
+            if let Some(block) = hom_assignments.get(hom) {
+                let count = hom_block_counts.entry(*block).or_insert(0);
+                *count += 1;
+            }
+        }
+        for (block, count) in hom_block_counts {
+            if count > hom_best_count {
+                hom_best_block = block;
+                hom_best_count = count;
+            }
+        }
+    
         if best_block != -1 {
+            
             let counts = block_counts.get(&best_block).unwrap();
             let mut counts2 = [0;2];
             if second_best_block != -1 {
@@ -554,13 +572,21 @@ fn assign_long_reads2(phasing: &Phasing, molecules: &Molecules, hom_assignments:
             let mut phase = 0;
             let mut best_count = counts[0];
             if counts[1] > counts[0] { phase  = 1; best_count = counts[1]; }
-            eprintln!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", 
-                mol, best_block, counts[0], counts[1], best_count, phase, 
+            eprintln!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", 
+                mol, best_block, hom_best_block, counts[0], counts[1], best_count, phase, 
                 second_best_block, counts2[0], counts2[1]);
             if counts[0] > counts[1] {
                 molecule_assignments.insert(*mol, best_block);
             } else {
                 molecule_assignments.insert(*mol, -best_block);
+            }
+        } else if hom_best_block != -1 {
+            if mol % 2 == 0 {
+                molecule_assignments.insert(*mol, hom_best_block);
+                eprintln!("no het assingment, hom {}\t{}\t{}",mol, hom_best_block, hom_best_count);
+            } else {
+                molecule_assignments.insert(*mol, -hom_best_block);
+                eprintln!("no het assingment, hom {}\t{}\t{}",mol, -hom_best_block, hom_best_count);
             }
         } else { eprintln!("\t\tNO BEST BLOCK with total variants {}", total); }
     }
@@ -635,36 +661,45 @@ fn assign_homozygous(phasing: &Phasing,
     let mut homozygous_phase_blocks: HashMap<i32, i32> = HashMap::new();
     let mut homozygous_phase_counts: HashMap<i32, HashMap<i32, u32>> = HashMap::new();
 
-    for (var, block) in phasing.variant_phasing.iter() {
-        let block = block.abs();
-        let mut mol_seen: HashSet<i32> = HashSet::new();
-        for mol in variants.get_linked_read_molecules(*var) {
-            let mol = mol.abs();
-            if mol_seen.contains(&mol) { continue; }
-            mol_seen.insert(mol);
-            for hom_var in molecules.get_hom_linked_read_variants(&mol).
-                chain(molecules.get_hom_long_read_variants(&mol)) {
-                let counts = homozygous_phase_counts.entry(*hom_var).or_insert(HashMap::new());
+    let mut counts: HashMap<i32, u32> = HashMap::new();
+    for mol in molecules.get_long_read_molecules() {
+        counts.clear();
+        for var in molecules.get_long_read_variants(*mol) {
+            let var = var.abs();
+            if let Some(block) = phasing.variant_phasing.get(&var) {
+                let block = block.abs();
                 let count = counts.entry(block).or_insert(0);
                 *count += 1;
             }
+        }    
+        for hom in molecules.get_hom_long_read_variants(mol) {
+            for (block, count) in counts.iter() {
+                let homcounts = homozygous_phase_counts.entry(*hom).or_insert(HashMap::new());
+                let homcount = homcounts.entry(*block).or_insert(0);
+                *homcount += *count;
+            }
         }
     }
+
     for (hom_var, counts) in homozygous_phase_counts {
         let mut best_count = 0;
         let mut best_block = 0;
+        let mut second_block = -1;
+        let mut second_count = 0;
         let mut total = 1.0;
         for (block, count) in counts {
             if count > best_count {
+                second_count = best_count;
+                second_block = best_block;
                 best_count  = count;
                 best_block = block;
             }
             total += count as f32;
         }
         best_count += 1;
-        let portion = (best_count as f32) / total;
+        let portion = (best_count as f32) / ((best_count as f32) + (second_count as f32));
         eprintln!("hom var likes block  {} with {}%", best_block, portion);
-        if portion > 0.98 {
+        if portion > 0.90 {
             homozygous_phase_blocks.insert(hom_var, best_block);
         }
     }
@@ -2007,6 +2042,9 @@ impl Molecules {
     //}
     fn get_long_read_molecules<'a>(&'a self) -> Box<dyn Iterator<Item=&i32>+'a> {
         Box::new(self.long_read_molecules.keys())
+    }
+    fn get_linked_read_molecules<'a>(&'a self) -> Box<dyn Iterator<Item=&i32>+'a> {
+        Box::new(self.linked_read_molecules.keys())
     }
 
     fn get_long_read_variants<'a>(&'a self, mol: i32) -> Box<dyn Iterator<Item=&i32>+'a> {
