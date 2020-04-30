@@ -243,8 +243,8 @@ impl Window {
             self.molecule_last_seen.insert(mol.abs(), self.iteration);
             for var2 in molecules.get_variants(&mol.abs(), KmerType::PairedHet) {
                 let var2 = var2.abs();
-                let used = used_variants.get(var2 as usize).unwrap();
-                if used { continue; }
+                //let used = used_variants.get(var2 as usize).unwrap();
+                //if used { continue; }
                 if self.variants_tried.contains(&var2) { continue; }
                 let removed = removed_variants.get(var2 as usize).unwrap();
                 if removed { continue; }
@@ -457,9 +457,9 @@ fn make_fastqs(params: &Params, long_read_assignment: &HashMap<i32, i32>,
     to_iterate.par_iter().for_each(|(_filenum, read_file, molid_offset)| {
         let mut writers: HashMap<i32, BufWriter<File>> = HashMap::new();
         for (index, (component, _size)) in sizes.iter().enumerate() {
-            if index > 9 {
-                break;
-            }
+            //if index > 9 {
+             //   break;
+            //}
             let writer1 = File::create(format!("{}/longreads_phase_block_{}_hap_{}.fq",
                 params.output, component, 0))
                 .expect("Unable to create file");
