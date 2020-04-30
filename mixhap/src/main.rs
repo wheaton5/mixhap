@@ -656,15 +656,15 @@ fn assign_long_reads(consistency_graph: &PhasingConsistencyGraph, molecules: &Mo
 }
 
 fn assign_homozygous(phasing: &Phasing, 
-    variants: &Variants, molecules: &Molecules) -> HashMap<i32, i32> {
+    _variants: &Variants, molecules: &Molecules) -> HashMap<i32, i32> {
     eprintln!("assigning homogyzous kmers to phase blocks");
     let mut homozygous_phase_blocks: HashMap<i32, i32> = HashMap::new();
     let mut homozygous_phase_counts: HashMap<i32, HashMap<i32, u32>> = HashMap::new();
 
     let mut counts: HashMap<i32, u32> = HashMap::new();
-    for mol in molecules.get_long_read_molecules() {
+    for mol in molecules.get_long_read_molecules().chain(molecules.get_linked_read_molecules()) {
         counts.clear();
-        for var in molecules.get_long_read_variants(*mol) {
+        for var in molecules.get_long_read_variants(*mol).chain(molecules.get_linked_read_variants(*mol)) {
             let var = var.abs();
             if let Some(block) = phasing.variant_phasing.get(&var) {
                 let block = block.abs();
@@ -672,7 +672,7 @@ fn assign_homozygous(phasing: &Phasing,
                 *count += 1;
             }
         }    
-        for hom in molecules.get_hom_long_read_variants(mol) {
+        for hom in molecules.get_hom_long_read_variants(mol).chain(molecules.get_hom_linked_read_variants(mol)) {
             for (block, count) in counts.iter() {
                 let homcounts = homozygous_phase_counts.entry(*hom).or_insert(HashMap::new());
                 let homcount = homcounts.entry(*block).or_insert(0);
@@ -684,17 +684,13 @@ fn assign_homozygous(phasing: &Phasing,
     for (hom_var, counts) in homozygous_phase_counts {
         let mut best_count = 0;
         let mut best_block = 0;
-        let mut second_block = -1;
         let mut second_count = 0;
-        let mut total = 1.0;
         for (block, count) in counts {
             if count > best_count {
                 second_count = best_count;
-                second_block = best_block;
                 best_count  = count;
                 best_block = block;
             }
-            total += count as f32;
         }
         best_count += 1;
         let portion = (best_count as f32) / ((best_count as f32) + (second_count as f32));
@@ -2575,8 +2571,8 @@ enum KmerType {
 }
 
 struct Kmers {
-    kmers: HashMap<i32, String>,
-    kmer_counts: HashMap<i32, i32>,
+    //kmers: HashMap<i32, String>,
+    //kmer_counts: HashMap<i32, i32>,
     kmer_type: HashMap<i32, KmerType>,
 }
 
@@ -2627,8 +2623,8 @@ fn load_kmers(kmerfile: &String) -> Kmers {
     }
     //(kmers, kmer_counts)
     Kmers{
-        kmers: kmers,
-        kmer_counts: kmer_counts,
+        //kmers: kmers,
+        //kmer_counts: kmer_counts,
         kmer_type: kmer_type,
     }
 }
