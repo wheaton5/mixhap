@@ -662,9 +662,9 @@ fn assign_homozygous(phasing: &Phasing,
     let mut homozygous_phase_counts: HashMap<i32, HashMap<i32, u32>> = HashMap::new();
 
     let mut counts: HashMap<i32, u32> = HashMap::new();
-    for mol in molecules.get_long_read_molecules().chain(molecules.get_linked_read_molecules()) {
+    for mol in molecules.get_long_read_molecules() {
         counts.clear();
-        for var in molecules.get_long_read_variants(*mol).chain(molecules.get_linked_read_variants(*mol)) {
+        for var in molecules.get_long_read_variants(*mol) {
             let var = var.abs();
             if let Some(block) = phasing.variant_phasing.get(&var) {
                 let block = block.abs();
@@ -672,7 +672,7 @@ fn assign_homozygous(phasing: &Phasing,
                 *count += 1;
             }
         }    
-        for hom in molecules.get_hom_long_read_variants(mol).chain(molecules.get_hom_linked_read_variants(mol)) {
+        for hom in molecules.get_hom_long_read_variants(mol) {
             for (block, count) in counts.iter() {
                 let homcounts = homozygous_phase_counts.entry(*hom).or_insert(HashMap::new());
                 let homcount = homcounts.entry(*block).or_insert(0);
