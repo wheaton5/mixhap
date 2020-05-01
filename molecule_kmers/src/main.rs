@@ -34,7 +34,7 @@ fn main() {
     eprintln!("load kmers");
     let (kmers, kmer_type) = load_kmers(&params);
     eprintln!("txg");
-    //process_txg(&params, &kmers);
+    process_txg(&params, &kmers);
     eprintln!("hic");
     process_hic(&params, &kmer_type);
     eprintln!("longreads");
