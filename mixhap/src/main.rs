@@ -2294,7 +2294,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
         }
     }
     
-    eprintln!("reducing to good linked read molecules with > 5 variants");
+    eprintln!("reducing to good linked read molecules with > 5 variants, right now we have {}", linked_read_molecules.len());
     linked_read_molecules.retain(|_key, value| value.len() > 10 && value.len() < 5000); 
     for (mol, varset) in linked_read_molecules.iter() {
         for var in varset.iter() {

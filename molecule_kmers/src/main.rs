@@ -34,11 +34,14 @@ fn main() {
     eprintln!("load kmers");
     let (kmers, kmer_type) = load_kmers(&params);
     eprintln!("txg");
+    eprintln!("{:?}\t{:?}\t{:?}\t{:?}", params.txg_r1s, params.txg_trim_r1s, params.txg_r2s, params.txg_trim_r2s);
+    
     process_txg(&params, &kmers);
     eprintln!("hic");
     process_hic(&params, &kmer_type);
     eprintln!("longreads");
     process_longreads(&params, &kmers);
+
 }
 
 struct Kmers {
@@ -257,6 +260,7 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
         izip!(0..read1s.len(), read1s, read1_trims, read2s, read2_trims) {
         to_iterate.push((filenum, r1_file.to_string(), *r1_trim, r2_file.to_string(), *r2_trim));
     }
+    eprintln!("to_iterate {:?}", to_iterate);
     to_iterate.par_iter().for_each(|(filenum, r1_file, r1_trim, r2_file, r2_trim)| {
         // get readers
         let mut r1_reader = get_reader(r1_file.to_string());
@@ -280,7 +284,9 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 buf2.clear();
                 continue; 
             }
+            eprintln!("we read");
             if let Some(barcode_id) = barcodes.get(&buf1[0..16]) {
+                eprintln!("we barcode");
                 let r1_sequence = &buf1[(16+r1_trim)..].sequence();
                 let r1_sequence = r1_sequence.normalize(false);
                 let r1_rc = r1_sequence.reverse_complement();
@@ -293,6 +299,7 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                         result.write_i32::<LittleEndian>(*kmer_id).expect("buffer fail");
                         //std::io::stdout().lock().write_all(&result).expect("fail");
                         writer.write_all(&result).expect("write fail");
+                        eprintln!("we find kmers");
                         result.clear();
                     }
                 }
@@ -302,6 +309,7 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 for (_, kmer, _) in r2_sequence.canonical_kmers(21, &r2_rc) {
                 //r2_sequence.canonical_kmers(21, &r2_rc).collect::<Vec<(usize, &[u8], bool)>>().into_par_iter().for_each(|(_, kmer, _)| {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
+                        eprintln!("we find kmers");
                         //println!("{}\t{}", barcode_id, kmer_id);//std::str::from_utf8(&kmer).unwrap()); 
                         let mut result: Vec<u8> = Vec::new();
                         result.write_i32::<LittleEndian>(*barcode_id).expect("buffer fill fail");
