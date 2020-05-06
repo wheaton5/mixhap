@@ -103,6 +103,7 @@ fn load_kmers(params: &Params) -> (HashMap<Vec<u8>, i32>, HashMap<Vec<u8>, (i32,
             kmer_id += 1;
         }
     }
+    println!("{} kmers",kmers.len());
     (kmers, kmer_type)
 }
 
