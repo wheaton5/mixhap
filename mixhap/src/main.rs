@@ -11,8 +11,10 @@ extern crate itertools;
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use itertools::izip;
+use std::fs;
 use std::str;
 use std::error::Error;
+use std::fs::OpenOptions;
 // Change the alias to `Box<error::Error>`.
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -111,8 +113,11 @@ fn make_phase_blocks(molecules: &Molecules, variants: &Variants) -> Phasing {
                 //println!("adding variant {}", next_var);
                 window.add_variant(next_var, variants, molecules, &mut used_variants, &mut removed_variants);
             } else { 
-                //if window.variants.len() == 1 { break; }
-                println!("ending phase block with {} variants", window.variants.len());
+                if window.variants.len() == 1 { 
+                    used_variants.set(start_var as usize, true);
+                    removed_variants.set(start_var as usize, true);
+                    continue; }
+                println!("ending phase block {} with {} variants", phase_block, window.variants.len());
                 for var in window.variants.iter() {
                     let mut block = phase_block;
                     if *var < 0 { block = -block; }
@@ -322,8 +327,8 @@ impl Window {
 
                 if used_variants.get(variant as usize).unwrap() {
                     if cis.max(trans)/total > 0.95 && minor/(minor+major) > 0.25 { // TODO make this settable
-                        //println!("wanting to jump to used variant. count {}, percent {:.2}, num mols {}, phasing {:?}, variants touched in current block {}, current block size {}",
-                        //    count, percent, variants.get_num_molecules(&variant, DataType::PBLR), phased_counts, variants_touched, self.variants.len());
+                        println!("wanting to jump to used variant. count {}, percent {:.2}, num mols {}, phasing {:?}, variants touched in current block {}, current block size {}",
+                            count, percent, variants.get_num_molecules(&variant, DataType::PBLR), phased_counts, variants_touched, self.variants.len());
                         if let Some(block) = phase_blocks.get(&variant) {
                             let counts = self.merge_block_counts.entry(block.abs()).or_insert([0;2]);
                             if (cis > trans && *block > 0) || (trans > cis && *block < 0) {
@@ -343,8 +348,8 @@ impl Window {
                 }
                 if *variants_touched < self.variants.len().min(4) {
                     to_remove = Some(variant);
-                    //println!("continuing because variant only touched {} other variants {:?}, %{:.1}, #{}, mols {}", 
-                     //   variants_touched, phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                    println!("continuing because variant only touched {} other variants {:?}, %{:.1}, #{}, mols {}", 
+                        variants_touched, phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
                     self.variants_tried.insert(variant);
                     continue;
                 }
@@ -353,25 +358,26 @@ impl Window {
                 if cis > trans && cis/total > 0.95 { // TODO make this settable
                     let minor = phased_counts[0].min(phased_counts[1]) as f32;
                     if minor/cis > 0.25 { // TODO make this settable
-                        //println!("adding variant {:?}, %{:.1}, #{}, mols {}", 
-                        //    phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                        println!("adding variant {:?}, %{:.1}, #{}, mols {}", 
+                            phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
                         self.variants_tried.insert(variant);
                         return Some(variant);
                     } else {
                         to_remove = Some(variant);
                         //used_variants.set(variant as usize, true);
-                        //println!("continuing because variant not really phasing consistent {:?}, %{}, #{}, mols {}", 
-                        //    phased_counts, percent_x_1000, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                        println!("continuing because variant not really phasing consistent {:?}, %{}, #{}, mols {}", 
+                            phased_counts, percent_x_1000, count, variants.get_num_molecules(&variant, DataType::PBLR));
                         //if self.variants.len() > 4 { removed_variants.set(variant as usize, true); }
                         self.variants_tried.insert(variant);
+                        
+                        println!("continuing because variant not really phasing consistent {:?}, {}", phased_counts, percent_x_1000);
                         continue;
-                        //println!("continuing because variant not really phasing consistent {:?}, {}", phased_counts, percent_x_1000);
                     }
                 } else if trans/total > 0.95 { // TODO make this settable
                     let minor = phased_counts[2].min(phased_counts[3]) as f32;
                     if minor/trans > 0.25 { // TODO make this settable
-                        //println!("adding -variant {:?}, %{:.1}, #{}, mols {}", 
-                        //    phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                        println!("adding -variant {:?}, %{:.1}, #{}, mols {}", 
+                            phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
                         //println!("adding -variant {:?}, {}", phased_counts, percent_x_1000);
                         self.variants_tried.insert(variant);
                         return Some(-variant);
@@ -379,16 +385,16 @@ impl Window {
                         to_remove = Some(variant);
                         //used_variants.set(variant as usize, true);
                         //if self.variants.len() > 4 { removed_variants.set(variant as usize, true); }
-                        //println!("continuing because variant not really phasing consistent {:?}, %{:.1}, #{}, mols {}", 
-                        //    phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                        println!("continuing because variant not really phasing consistent {:?}, %{:.1}, #{}, mols {}", 
+                            phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
                         self.variants_tried.insert(variant);
                         continue;
                     }
                 } else {
                     to_remove = Some(variant);
                     //used_variants.set(variant as usize, true);
-                    //println!("continuing because variant not really phasing consistent {:?}, %{:.2}, #{}, mols {}", 
-                    //        phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
+                    println!("continuing because variant not really phasing consistent {:?}, %{:.2}, #{}, mols {}", 
+                            phased_counts, percent, count, variants.get_num_molecules(&variant, DataType::PBLR));
                     
                     if self.variants.len() > 4 { removed_variants.set(variant as usize, true); }
                     self.variants_tried.insert(variant);
@@ -454,31 +460,65 @@ fn make_fastqs(params: &Params, long_read_assignment: &HashMap<i32, i32>,
     for (molid_offset, (filenum, read)) in izip!(molid_offsets, reads.iter().enumerate()) {
         to_iterate.push((filenum, read.to_string(), molid_offset));
     }
-    to_iterate.par_iter().for_each(|(_filenum, read_file, molid_offset)| {
+
+    let mut block_molecules: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (mol, block) in long_read_assignment.iter() {
+        let mols = block_molecules.entry(block.abs()).or_insert(Vec::new());
+        mols.push(*mol);
+    }
+
+    let mut block_mols_list: Vec<(i32, Vec<i32>)> = Vec::new();
+    let mut dropped = 0;
+    for (block, mols) in block_molecules {
+        //if mols.len() > 10 {
+            if mols.len() < 20 {
+                eprintln!("small block {}",block);
+            }
+            block_mols_list.push((block, mols));
+        //} else {
+        //    dropped += mols.len();
+        //}
+    }
+    eprintln!("we dropped {} long reads to small phase blocks", dropped);
+    eprintln!("we have {} phase blocks", block_mols_list.len());
+    // now we are gonna have to do a 2 pass writing phase to not open too many files at once
+    // we will first assign each phase block to a meta_block
+    // we will then go through the fastqs and write 200 new fastqs of those meta blocks
+    // we can then go through each meta block file and write each block out separately
+    block_mols_list.sort_by(|a,b| b.1.len().cmp(&a.1.len()));
+    
+    let mut block_of_blocks: HashMap<i32, i32> = HashMap::new(); // mapping from phase block to meta block
+    let num_block_of_blocks = 200;
+    let mut meta_block_blocks: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut meta_block = 0;
+    for (block, _) in block_mols_list.iter() {
+        block_of_blocks.insert(*block, meta_block);
+        let mols = meta_block_blocks.entry(meta_block).or_insert(Vec::new());
+        mols.push(*block);
+        meta_block += 1;
+        if meta_block == num_block_of_blocks { meta_block = 0; }
+    }
+    let mut new_mol_ids: HashMap<i32, HashMap<i32, i32>> = HashMap::new(); // mapping from new molid to old molid
+    let mut current_molid: HashMap<i32, i32> = HashMap::new();
+    for meta_block in 0..num_block_of_blocks {
+        current_molid.insert(meta_block, 0);
+    }
+
+    
+    for (_filenum, read_file, molid_offset) in to_iterate.iter() {
         let mut writers: HashMap<i32, BufWriter<File>> = HashMap::new();
-        for (index, (component, _size)) in sizes.iter().enumerate() {
-            //if index > 9 {
-             //   break;
-            //}
-            let writer1 = File::create(format!("{}/longreads_phase_block_{}_hap_{}.fq",
-                params.output, component, 0))
+        for meta_block in 0..num_block_of_blocks {
+            let writer1 = OpenOptions::new().write(true).create(true).open(
+                format!("{}/longreads_metablock_{}.fq", params.output, meta_block))
                 .expect("Unable to create file");
             let writer1 = BufWriter::new(writer1);
-            let writer2 = File::create(format!("{}/longreads_phase_block_{}_hap_{}.fq",
-                params.output, component, 1))
-                .expect("Unable to create file");
-            let writer2 = BufWriter::new(writer2);
-            writers.insert(**component, writer1);
-            writers.insert(-**component, writer2);
+            writers.insert(meta_block, writer1);
         }
         
         let mut reader = get_reader(read_file.to_string());
         let mut read_num = *molid_offset;
         let mut last_read_name = "none".to_string();
-        let mut buf1 = vec![];
-        let mut buf2 = vec![];
-        let mut buf3 = vec![];
-        let mut buf4 = vec![];
+        let mut buf1 = vec![]; let mut buf2 = vec![]; let mut buf3 = vec![]; let mut buf4 = vec![];
         loop {
             buf1.clear(); buf2.clear(); buf3.clear(); buf4.clear();
             let bytes = reader.read_until(b'\n', &mut buf1).expect("cannot read longread fastq");
@@ -491,34 +531,77 @@ fn make_fastqs(params: &Params, long_read_assignment: &HashMap<i32, i32>,
             if qname == last_read_name { eprintln!("i do see this"); continue; }
             last_read_name = qname.to_string();
             if let Some(comp) = long_read_assignment.get(&(read_num+1)) {
-                if let Some(writer) = writers.get_mut(comp) {
-                    match writer.write_all(&buf1) {
-                        Ok(()) => {}
-                        Err(_e) => { eprintln!("cannot write "); }
-                    }
-                    match writer.write_all(&buf2) {
-                        Ok(()) => {}
-                        Err(_e) => { eprintln!("cannot write "); }
-                    }
-                    match writer.write_all(&buf3) {
-                        Ok(()) => {}
-                        Err(_e) => { eprintln!("cannot write "); }
-                    }
-                    match writer.write_all(&buf4) {
-                        Ok(()) => {}
-                        Err(_e) => { eprintln!("cannot write "); }
+                if let Some(meta_block) = block_of_blocks.get(&comp.abs()) {
+                    let molids = new_mol_ids.entry(*meta_block).or_insert(HashMap::new());
+                    let molid = *current_molid.get(meta_block).unwrap();
+                    molids.insert(molid, read_num+1);
+                    current_molid.insert(*meta_block, molid + 1);
+
+                    if let Some(writer) = writers.get_mut(meta_block) {
+                        writer.write_all(&buf1).expect("couldnt write");
+                        writer.write_all(&buf2).expect("couldnt write");
+                        writer.write_all(&buf3).expect("couldnt write");
+                        writer.write_all(&buf4).expect("couldnt write");
                     }
                 }
             }
             read_num += 1;
         }
         eprintln!("last longread {}",read_num-last_offset);
-    });
+    }
+
+    for meta_block in 0..num_block_of_blocks {
+        let new_mol_ids = new_mol_ids.get(&meta_block).unwrap();
+        let mut reader = get_reader(format!("{}/longreads_metablock_{}.fq", params.output, meta_block));
+        let mut writers: HashMap<i32, BufWriter<File>> = HashMap::new();
+        for phase_block in meta_block_blocks.get(&meta_block).unwrap() {
+            let writer1 = OpenOptions::new().write(true).create(true).open(
+                format!("{}/longreads_phase_block_{}_hap_{}.fq", params.output, phase_block, 0))
+                .expect("Unable to create file");
+            let writer1 = BufWriter::new(writer1);
+            writers.insert(*phase_block, writer1);
+            let writer2 = OpenOptions::new().write(true).create(true).open(
+                format!("{}/longreads_phase_block_{}_hap_{}.fq", params.output, phase_block, 1))
+                .expect("Unable to create file");
+            let writer2 = BufWriter::new(writer2);
+            writers.insert(-*phase_block, writer2);
+            println!("making writers metablock {} phase block {}", meta_block, phase_block);
+        }
+        let mut read_num = 0;
+        let mut buf1 = vec![];
+        let mut buf2 = vec![];
+        let mut buf3 = vec![];
+        let mut buf4 = vec![];
+        loop {
+            buf1.clear(); buf2.clear(); buf3.clear(); buf4.clear();
+            let bytes = reader.read_until(b'\n', &mut buf1).expect("cannot read longread fastq");
+            if bytes == 0 { break; }
+            reader.read_until(b'\n', &mut buf2).expect("cannot read longread fastq");
+            reader.read_until(b'\n', &mut buf3).expect("cannot read longread fastq");
+            reader.read_until(b'\n', &mut buf4).expect("cannot read longread fastq");
+            if let Some(molid) = new_mol_ids.get(&read_num) {
+                if let Some(comp) = long_read_assignment.get(molid) {
+                    if let Some(writer) = writers.get_mut(comp) {
+                        writer.write_all(&buf1).expect("couldn't write");
+                        writer.write_all(&buf2).expect("couldn't write");
+                        writer.write_all(&buf3).expect("couldn't write");
+                        writer.write_all(&buf4).expect("couldn't write");
+                    } else { println!("there was no writer for component {} in metablock {}", comp, meta_block); }
+                } else { println!("there was no component for molid {} in metablock {}", molid, meta_block); }
+            } else { println!("there was no molid for read num {} in metablock {}", read_num, meta_block); }
+            read_num += 1;
+        }
+    }
+    for meta_block in 0..num_block_of_blocks {
+        fs::remove_file(format!("{}/longreads_metablock_{}.fq", params.output, meta_block));
+    }
 }
 
 fn assign_long_reads2(phasing: &Phasing, molecules: &Molecules, hom_assignments: &HashMap<i32, i32>) -> HashMap<i32, i32> {
     let mut molecule_assignments: HashMap<i32, i32> = HashMap::new();
+    let mut total_mols = 0;
     for mol in molecules.get_long_read_molecules() {
+        total_mols += 1;
         let mut block_counts: HashMap<i32, [u32; 2]> = HashMap::new();
         let mut total = 0;
         for var in molecules.get_long_read_variants(*mol) {
@@ -561,20 +644,29 @@ fn assign_long_reads2(phasing: &Phasing, molecules: &Molecules, hom_assignments:
                 hom_best_count = count;
             }
         }
-    
-        if best_block != -1 {
-            
+        if best_block != -1 && hom_best_block != -1 {
             let counts = block_counts.get(&best_block).unwrap();
-            let mut counts2 = [0;2];
-            if second_best_block != -1 {
-                counts2 = *block_counts.get(&second_best_block).unwrap();
+            //let mut phase = 1;
+            if counts[0] > counts[1] {
+                molecule_assignments.insert(*mol, hom_best_block);
+            } else {
+                molecule_assignments.insert(*mol, -hom_best_block);
+                //phase = -1;
             }
-            let mut phase = 0;
-            let mut best_count = counts[0];
-            if counts[1] > counts[0] { phase  = 1; best_count = counts[1]; }
-            eprintln!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", 
-                mol, best_block, hom_best_block, counts[0], counts[1], best_count, phase, 
-                second_best_block, counts2[0], counts2[1]);
+            //eprintln!("assigning {} het block {} == {} hom block? {}, counts {:?}, hom_count {}", 
+            //    hom_best_block*phase, best_block, hom_best_block, best_block == hom_best_block, counts, hom_best_count);
+        } else if best_block != -1 {
+            let counts = block_counts.get(&best_block).unwrap();
+            //let mut counts2 = [0;2];
+            //if second_best_block != -1 {
+            //    counts2 = *block_counts.get(&second_best_block).unwrap();
+            //}
+            //let mut phase = 0;
+            //let mut best_count = counts[0];
+            //if counts[1] > counts[0] { phase  = 1; best_count = counts[1]; }
+            //eprintln!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", 
+            //    mol, best_block, hom_best_block, counts[0], counts[1], best_count, phase, 
+            //    second_best_block, counts2[0], counts2[1]);
             if counts[0] > counts[1] {
                 molecule_assignments.insert(*mol, best_block);
             } else {
@@ -583,13 +675,14 @@ fn assign_long_reads2(phasing: &Phasing, molecules: &Molecules, hom_assignments:
         } else if hom_best_block != -1 {
             if mol % 2 == 0 {
                 molecule_assignments.insert(*mol, hom_best_block);
-                eprintln!("no het assingment, hom {}\t{}\t{}",mol, hom_best_block, hom_best_count);
+            //    eprintln!("no het assingment, hom {}\t{}\t{}",mol, hom_best_block, hom_best_count);
             } else {
                 molecule_assignments.insert(*mol, -hom_best_block);
-                eprintln!("no het assingment, hom {}\t{}\t{}",mol, -hom_best_block, hom_best_count);
+            //    eprintln!("no het assingment, hom {}\t{}\t{}",mol, -hom_best_block, hom_best_count);
             }
         } else { eprintln!("\t\tNO BEST BLOCK with total variants {}", total); }
     }
+    eprintln!("total long read molecules {}", total_mols);
     molecule_assignments
 }
 
@@ -694,7 +787,7 @@ fn assign_homozygous(phasing: &Phasing,
         }
         best_count += 1;
         let portion = (best_count as f32) / ((best_count as f32) + (second_count as f32));
-        eprintln!("hom var likes block  {} with {}%", best_block, portion);
+        //eprintln!("hom var likes block  {} with {}%", best_block, portion);
         if portion > 0.90 {
             homozygous_phase_blocks.insert(hom_var, best_block);
         }
@@ -1085,8 +1178,8 @@ fn graph_core(comp_mols: &HashMap<i32, Vec<i32>>, mol_comps: &HashMap<i32, Vec<i
             }
         }
         for (comp2, counts) in graphcount.iter() {
-            let cis = (counts[0]+counts[1]) as f32;
-            let trans = (counts[2]+counts[3]) as f32;
+            let cis = (counts[0] + counts[1]) as f32;
+            let trans = (counts[2] + counts[3]) as f32;
             let total = cis + trans;
             if cis.max(trans)/total >= phasing_consistency.phasing_consistency && 
                 total >= phasing_consistency.min_support {
