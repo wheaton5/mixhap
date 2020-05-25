@@ -36,7 +36,7 @@ fn main() {
     eprintln!("txg");
     eprintln!("{:?}\t{:?}\t{:?}\t{:?}", params.txg_r1s, params.txg_trim_r1s, params.txg_r2s, params.txg_trim_r2s);
     
-    process_txg(&params, &kmers, &kmer_type);
+    process_txg(&params, &kmers);
     eprintln!("hic");
     process_hic(&params, &kmer_type);
     eprintln!("longreads");
@@ -107,7 +107,7 @@ fn load_kmers(params: &Params) -> (HashMap<Vec<u8>, i32>, HashMap<Vec<u8>, (i32,
     (kmers, kmer_type)
 }
 
-fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>, kmer_types: &HashMap<Vec<u8>, KMER_TYPE>)  {
+fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
     let reads = &params.long_reads;
     
     //write_2_zeros(); // delimiter, this file format isnt great
