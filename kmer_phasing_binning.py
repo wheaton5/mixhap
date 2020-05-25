@@ -63,7 +63,8 @@ with open(args.output + "/molecule_kmers.err", 'w') as err:
 
 mol_out_txg = [args.output+"/molecules_txg_"+"{0:0=3d}".format(x)+".bin" for x in range(len(args.txg_r1s))]
 mol_out_longreads = [args.output+"/molecules_longreads_"+"{0:0=3d}".format(x)+".bin" for x in range(len(args.long_reads))]
-mol_out_hic = [args.output+"/molecules_hic_"+"{0:0=3d}".format(x)+".bin" for x in range(len(args.hic_r1s))]
+if not(args.hic_r1s is None):
+    mol_out_hic = [args.output+"/molecules_hic_"+"{0:0=3d}".format(x)+".bin" for x in range(len(args.hic_r1s))]
 
 print("\t".join(mol_out_txg))
 print("\t".join(mol_out_longreads))
@@ -74,7 +75,8 @@ cmd = [mypath + "/mixhap/target/release/mixhap"]
 cmd.extend(["--kmers", args.output+"/het_kmers.tsv"])
 cmd.extend(["--txg_mols"]+mol_out_txg)
 cmd.extend(["--longread_mols"]+mol_out_longreads)
-cmd.extend(["--hic_mols"]+mol_out_hic)
+if not(args.hic_r1s is None):
+    cmd.extend(["--hic_mols"]+mol_out_hic)
 
 cmd.extend(["--longread_fqs"]+args.long_reads)
 cmd.extend(["--ploidy", str(args.ploidy), "--variants", args.output + "/molecule_kmers.custom_binary"])
