@@ -120,7 +120,7 @@ fn sparsembly2point0(adjacency_list: HashMap<i32, HashSet<i32>>) {
         let mut bfs_queue: VecDeque<i32> = VecDeque::new();
         //bfs_queue.push_back(startvar);
         for var1 in [startvar, startpair].iter() {
-            eprintln!("considering var {}", var1);
+            //eprintln!("considering var {}", var1);
             if let Some(varset) = adjacency_list.get(&var1) {
                 let varmod2 = var1.abs() % 2;
                 for var2 in varset {
@@ -173,7 +173,7 @@ fn sparsembly2point0(adjacency_list: HashMap<i32, HashSet<i32>>) {
                         let minor = counts[0].min(counts[1]) as f32;
                         if minor/total > 0.15 {
                             add = true;
-                            //eprintln!("adding variant in cis {:?}",counts);
+                            eprintln!("adding variant in cis {:?}",counts);
                         }
                     } else {
                         let minor = counts[2].min(counts[3]) as f32;
@@ -182,7 +182,7 @@ fn sparsembly2point0(adjacency_list: HashMap<i32, HashSet<i32>>) {
                             phase = false;
                             altvar = refvar;
                             refvar = pair(altvar);
-                            //eprintln!("adding variant in trans {:?}", counts);
+                            eprintln!("adding variant in trans {:?}", counts);
                         }
                     }
                 }
@@ -267,11 +267,11 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
             }
         }
     }
-    eprintln!("graph size {}", graph.len());
+    //eprintln!("graph size {}", graph.len());
     let mut adjacency_list: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut het_vars: Vec<i32> = Vec::new();
     let mut het_var_index: HashMap<i32, usize> = HashMap::new();
-    println!("graph longreads {{");
+    //println!("graph longreads {{");
     for var in variants.get_variant_iter(KmerType::PairedHet) {
         //println!("\t{} -- {};", var, -var);
         het_var_index.insert(*var, het_vars.len());
@@ -362,7 +362,7 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
         sorted_comps.push((*root, set.clone()));
         total += set.len();
     }
-    eprintln!("total for N50 calculation {}",total);
+    //eprintln!("total for N50 calculation {}",total);
     sorted_comps.sort_by(|a,b| b.1.len().cmp(&a.1.len()));
     let mut so_far = 0;
     let mut done = false;
@@ -374,11 +374,12 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
             N50 = set.len();
             //break;
         }
-        eprintln!("comp\t{}\tsize\t{}",root, set.len());
+        //eprintln!("comp\t{}\tsize\t{}",root, set.len());
         if set.len() == 1 {
             let mut badvar = 0;
             for tmpvar in set { badvar = *tmpvar; }
             let badvar = het_vars[badvar];
+            /*
             if let Some(kmer_string) = kmers.kmers.get(&badvar) {
                 if let Some(kmer_count) = kmers.kmer_counts.get(&badvar) {
                     eprintln!("inspecting bad var {} = {} with {}",badvar, kmer_string, kmer_count);
@@ -388,6 +389,7 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
             } else {
                 eprintln!("inspecting bad var {} = {} with {}",badvar, "i dont know what this kmer is?", "no counts?");
             }
+            
             
             for mol in variants.get_long_read_molecules(badvar) {
                 eprintln!("\ton long mol {}",mol);
@@ -404,9 +406,10 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
             for mol in variants.get_linked_read_molecules(-badvar) {
                 eprintln!("\t RC on linked-read mol {}",mol);
             }
+            */
         }
     }
-    eprintln!("N50\t{}",N50);
+    //eprintln!("N50\t{}",N50);
     let biggest_block = sorted_comps[0].1.clone();
 
     let mut bfs: VecDeque<i32> = VecDeque::new();
@@ -437,7 +440,7 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
         let mut prefix = "";
         if node < 0 { prefix = "c"; }
         children.insert(node);
-        println!("\tn{}{} [color=red];",prefix, node.abs());
+        //println!("\tn{}{} [color=red];",prefix, node.abs());
     }
     for var1 in adjacency_list.keys() {
         for var2 in adjacency_list.get(var1).unwrap() {
@@ -450,11 +453,11 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
             if *var2 < 0 { prefix2 = "c"; }
             let mut suffix = "";
             if children.contains(var1) && children.contains(var2) { suffix = "[color=red]"}
-            println!("\tn{}{} -> n{}{} {};", prefix1, var1.abs(), prefix2, var2.abs(), suffix);
+            //println!("\tn{}{} -> n{}{} {};", prefix1, var1.abs(), prefix2, var2.abs(), suffix);
         }
     }
 
-    println!("}}");
+    //println!("}}");
     let mut components: HashMap<i32, HashSet<i32>> = HashMap::new();
     for (vardex, vardexset) in disjoint_sets.iter() {
         let var = het_vars[*vardex];
