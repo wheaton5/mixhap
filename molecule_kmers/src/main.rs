@@ -34,13 +34,18 @@ fn main() {
     eprintln!("load kmers");
     let (kmers, kmer_type) = load_kmers(&params);
     eprintln!("txg");
-    eprintln!("{:?}\t{:?}\t{:?}\t{:?}", params.txg_r1s, params.txg_trim_r1s, params.txg_r2s, params.txg_trim_r2s);
-    
-    process_txg(&params, &kmers);
-    eprintln!("hic");
-    process_hic(&params, &kmer_type);
-    eprintln!("longreads");
-    process_longreads(&params, &kmers);
+    if params.txg_r1s.len() > 0 {
+        eprintln!("{:?}\t{:?}\t{:?}\t{:?}", params.txg_r1s, params.txg_trim_r1s, params.txg_r2s, params.txg_trim_r2s);
+        process_txg(&params, &kmers);
+    }
+    if params.hic_r1s.len() > 0 {
+        eprintln!("hic");
+        process_hic(&params, &kmer_type);
+    }
+    if params.long_reads.len() > 0 {
+        eprintln!("longreads");
+        process_longreads(&params, &kmers);
+    }
 
 }
 
@@ -136,13 +141,14 @@ fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 let seq = &buf.sequence(); 
                 let seq = seq.normalize(false);
                 let rc = seq.reverse_complement();
-                for (_, kmer, canonical) in seq.canonical_kmers(21, &rc) {
+                for (position, kmer, canonical) in seq.canonical_kmers(21, &rc) {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
                         //let counts = vars.entry(kmer_id.abs()).or_insert([0u8; 2]);
                         //if kmer_id < &0 { counts[1] += 1; } else { counts[0] += 1; }
                         if canonical {
                             variants.push(-*kmer_id);
                         } else { variants.push(*kmer_id); }
+                        variants.push(position as i32);
                     }
                 }
                 handle_subreads(&variants, &mut writer);
