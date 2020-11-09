@@ -30,13 +30,13 @@ args:
         long: txg_mols
         takes_value: true
         multiple: true
-        required: true
+        required: false
         help: 10x genomics linked read molecule binary file out of molecule_kmers program
     - longread_mols:
         long: longread_mols
         takes_value: true
         multiple: true
-        required: true
+        required: false
         help: longread molecule binary file out of molecule_kmers program
     - longread_fqs:
         long: longread_fqs
@@ -48,10 +48,15 @@ args:
         long: hic_mols
         takes_value: true
         multiple: true
-        required: true
+        required: false
         help: hic molecule binary file out of molecule_kmers program
     - output:
         long: output
         takes_value: true
         required: true
         help: output_directory
+    - crib:
+        long: crib
+        takes_value: true
+        required: false
+        help: cheat sheet ordering of kmers

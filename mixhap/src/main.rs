@@ -25,6 +25,7 @@ use std::io::{BufWriter, Write};
 use rand::Rng;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::thread_rng;
 use rand::seq::SliceRandom;
 use std::f32;
 use std::convert::TryInto;
@@ -48,14 +49,174 @@ fn main() {
     //let whitelist = load_whitelist(&params); // map from barcode string to index in whitelist
     //println!("whitelist loaded");
     //let (variants, barcodes, info, phasing) = load_variants(&params, &whitelist); 
-    eprintln!("loading kmers");
+    //eprintln!("loading kmers");
     let kmers = load_kmers(&params.kmers);
-    eprintln!("loading molecules");
+    let crib = match &params.crib {
+        Some(x) => {
+            //eprintln!("loading crib");
+            Some(load_crib(&x, &kmers))
+        },
+        None => None,
+    };
+
+
+    //eprintln!("loading molecules");
     let (variants, molecules) = load_molecule_kmers(&params, &kmers);
 
-    let (components, adjacency_list) = sparsembly(&molecules, &variants, &kmers);
 
-    sparsembly2point0(adjacency_list);
+    /* 
+    let data = "%\n%\n";
+    let f1 = File::create("/Users/hh5/Documents/datasets/ribosomal_clusters/ref.mtx").expect("Unable to create file");
+    let mut f1 = BufWriter::new(f1);
+    f1.write_all(data.as_bytes()).expect("Unable to write data");
+
+    let f2 = File::create("/Users/hh5/Documents/datasets/ribosomal_clusters/alt.mtx").expect("Unable to create file");
+    let mut f2 = BufWriter::new(f2);
+    f2.write_all(data.as_bytes()).expect("Unable to write data");
+
+    
+    
+    let firstline = format!("{}\t{}\t{}\n",variants.long_read_variants.len(), molecules.long_read_molecules.len(), 100000);
+    f1.write_all(firstline.as_bytes()).expect("boo");
+    f2.write_all(firstline.as_bytes()).expect("boo");
+    let mut variant_index: HashMap<i32, usize> = HashMap::new(); // variant space id to index
+    let mut index_to_variants: HashMap<usize, (i32, i32)> = HashMap::new(); // variant index space to tuple of variant space ids 
+    let mut variant_index_so_far: usize = 0; 
+    let mut molecule_index: HashMap<i32, usize> = HashMap::new();
+    let mut molecule_so_far: usize = 1;
+    let mut bad_vars: HashSet<i32> = HashSet::new();
+    let mut variant_molecules: HashMap<i32, Vec<i32>> = HashMap::new(); // variant space id to vector of molecules in molecule id space
+    
+    for (mol, vars) in molecules.long_read_molecules.iter() {
+        let mol = mol.abs();
+        if !molecule_index.contains_key(&mol) {
+            molecule_so_far += 1;
+            molecule_index.insert(mol, molecule_so_far);
+        }
+        let mut check: HashSet<i32> = HashSet::new();
+        for var in vars.iter() {
+            if check.contains(var) {
+                //println!("mol {} has var {} twice?",mol, var);
+                continue;
+            } else if check.contains(&-var) {
+                //println!("mol {} has var {} and its RC?", mol, var);
+                continue;
+            } else if var.abs() % 2 == 0 && (check.contains(&(var.abs() - 1)) || check.contains(&(-(var.abs() - 1)))) {
+                //println!("mol {} has var {} and its pair???", mol, var);
+                bad_vars.insert(var.abs());
+                bad_vars.insert(var.abs()-1);
+            } else if var.abs() % 2 == 1 && (check.contains(&(var.abs() + 1)) || check.contains(&(-(var.abs() + 1)))) {
+                //println!("mol {} has var {} and its pair!!!", mol, var);
+                bad_vars.insert(var.abs());
+                bad_vars.insert(var.abs()+1);
+            }
+            check.insert(*var);
+            let var = var.abs();
+            
+            
+            let mut vardex: usize = 0;
+            if variant_index.contains_key(&var) {
+                vardex = *variant_index.get(&var).unwrap();
+            } else {
+                variant_index_so_far += 1;
+                vardex = variant_index_so_far;
+                variant_index.insert(var, vardex);
+
+                if var % 2 == 0 {
+                    variant_index.insert(var - 1, vardex);
+                    index_to_variants.insert(vardex, (var - 1, var));
+                } else {
+                    variant_index.insert(var + 1, vardex);
+                    index_to_variants.insert(vardex, (var, var + 1));
+                }
+            }
+            let listme = variant_molecules.entry(var).or_insert(Vec::new());
+            listme.push(mol);
+        }
+    }
+    variant_index_so_far += 1;
+    println!("number of bad vars is {}",bad_vars.len()/2);
+    for vardex in 1..variant_index_so_far {
+        //println!("vardex {}",vardex);
+        let (var1, var2) = index_to_variants.get(&vardex).unwrap();
+        if bad_vars.contains(var1) { continue; }
+        let mut moldexes: Vec<i32> = Vec::new();
+        if !variant_molecules.contains_key(var1) {
+            continue;
+        }
+        for mol in variant_molecules.get(var1).unwrap().iter() {
+            let moldex = molecule_index.get(mol).unwrap();
+            moldexes.push(*moldex as i32);
+        }
+        if !variant_molecules.contains_key(var2) {
+            continue;
+        }
+        for mol in variant_molecules.get(var2).unwrap().iter() { 
+            let moldex = molecule_index.get(mol).unwrap();
+            moldexes.push(-(*moldex as i32));
+        }
+        moldexes.sort_by(|a, b| a.abs().cmp(&b.abs()));
+        for mol in moldexes {
+            if mol < 0 {
+                let line = format!("{}\t{}\t{}\n", vardex, mol.abs(), 0);
+                f1.write_all(line.as_bytes()).expect("boo");
+                let line = format!("{}\t{}\t{}\n", vardex, mol.abs(), 1);
+                f2.write_all(line.as_bytes()).expect("boo");
+            } else {
+                let line = format!("{}\t{}\t{}\n", vardex, mol.abs(), 1);
+                f1.write_all(line.as_bytes()).expect("boo");
+                let line = format!("{}\t{}\t{}\n", vardex, mol.abs(), 0);
+                f2.write_all(line.as_bytes()).expect("boo");
+            }
+        }
+    }
+
+    let mut adjacency_list: HashMap<i32, HashMap<i32,usize>> = HashMap::new();
+    for (_mol, vars) in molecules.long_read_het_molecule_list.iter() {
+        if vars.len() < 2 { continue; }
+        for i in 0..(vars.len()-1) {
+            //println!("its working?");
+            let j = i+1;
+            //println!("{}",i);
+
+            //for j in (i+1)..vars.len() {
+                let var1 = vars[i];
+                let var2 = vars[j];
+                {
+                let thingy = adjacency_list.entry(var1).or_insert(HashMap::new());
+                let count = thingy.entry(var2).or_insert(0);
+                *count += 1;
+                }
+                {
+                    let thingy = adjacency_list.entry(-var2).or_insert(HashMap::new());
+                    let count = thingy.entry(-var1).or_insert(0);
+                    *count += 1;
+                }
+            //}
+        }
+    }
+
+    println!("graph {{");
+
+    for (var, varcounts) in adjacency_list.iter() {
+        let mut count_vec: Vec<(&i32, &usize)> = varcounts.iter().collect();
+        count_vec.sort_by(|a, b| b.1.cmp(a.1));
+        //if count_vec.len() > 1 {
+        //    println!("var {} best {} count {} second best {} second best count {}", var, count_vec[0].0, count_vec[0].1, count_vec[1].0, count_vec[1].1);
+        //} else {
+        //    println!("var {} best {} count {}", var, count_vec[0].0, count_vec[0].1);
+        //}
+        if varcounts.len() == 1 || (*count_vec[0].1 as f32)/((count_vec[0].1 + count_vec[1].1) as f32) > 0.9 {
+            println!("\t{} -- {};", kmers.kmers.get(&var.abs()).unwrap(), kmers.kmers.get(&count_vec[0].0.abs()).unwrap());
+        }
+        
+    }
+    println!("}}");
+    */
+   
+    let (components, adjacency_list) = sparsembly(&molecules, &variants, &kmers, &crib);
+
+    sparsembly2point0(&variants, &molecules, adjacency_list, crib, &kmers);
 
 
 
@@ -92,88 +253,283 @@ fn main() {
     //phuzzy_phaser_master(barcodes, variants, params.ploidy, None, None, kmer_ids_to_kmer);
 }
 
-fn sparsembly2point0(adjacency_list: HashMap<i32, HashSet<i32>>) {
+#[derive(Debug)]
+struct Status {
+    r_h1: u16,
+    r_h2: u16,
+    r_none: u16,
+    r_both: u16,
+    a_h1: u16,
+    a_h2: u16,
+    a_none: u16,
+    a_both: u16,
+}
+
+impl Status {
+    fn new(var: i32, variants: &Variants) -> Status {
+        let mut status = Status{
+            r_h1: 0,
+            r_h2: 0,
+            r_none: variants.get_long_read_molecules(var.abs()).count() as u16,
+            r_both: 0,
+            a_h1: 0,
+            a_h2: 0,
+            a_none: variants.get_long_read_molecules(pair(var.abs())).count() as u16,
+            a_both: 0,
+        };
+        status
+    }
+    fn empty() -> Status {
+        Status{
+            r_h1: 0,
+            r_h2: 0,
+            r_none: 0,
+            r_both: 0,
+            a_h1: 0,
+            a_h2: 0,
+            a_none: 0,
+            a_both: 0,
+        }
+    }
+    fn get_status(var: i32, variants: &Variants, molecules: &Molecules, phasing: &HashMap<i32, bool>, kmers: &Kmers) -> Status {
+        let mut status = Status::empty();
+        let mut refvar = var;
+        let mut altvar = pair(var);
+        if var % 2 != 0 {
+            refvar = pair(var);
+            altvar = var;
+        }
+        for mol in variants.get_long_read_molecules(refvar) {
+            let mut hap1 = 0;
+            let mut hap2 = 0;
+            for var2 in molecules.get_long_read_variants(mol.abs()) {
+                if let Some(phase) = phasing.get(&var2.abs()) {
+                    if *phase {
+                        hap1 += 1;
+                    } else {
+                        hap2 += 1;
+                    }
+                }
+            }
+            if hap1 > 0 && hap2 > 0 {
+                eprintln!("wtf kmers ref both so check kmers\n{}\n{}",
+                    kmers.kmers.get(&refvar).unwrap(), kmers.kmers.get(&altvar).unwrap());
+                status.r_both += 1;
+            } else if hap1 > 0 && hap2 == 0 {
+                status.r_h1 += 1;
+            } else if hap2 > 0 && hap1 == 0 {
+                status.r_h2 += 1;
+            } else {
+                status.r_none += 1;
+            }
+        }
+        for mol in variants.get_long_read_molecules(altvar) {
+            let mut hap1 = 0;
+            let mut hap2 = 0;
+            for var2 in molecules.get_long_read_variants(mol.abs()) {
+                if let Some(phase) = phasing.get(&var2.abs()) {
+                    if *phase {
+                        hap1 += 1;
+                    } else {
+                        hap2 += 1;
+                    }
+                }
+            }
+            if hap1 > 0 && hap2 > 0 {
+                eprintln!("wtf kmers alt both so check kmers\n{}\n{}",
+                    kmers.kmers.get(&refvar).unwrap(), kmers.kmers.get(&altvar).unwrap());
+                status.a_both += 1;
+            } else if hap1 > 0 && hap2 == 0 {
+                status.a_h1 += 1;
+            } else if hap2 > 0 && hap1 == 0 {
+                status.a_h2 += 1;
+            } else {
+                status.a_none += 1;
+            }
+        }
+        status
+    }
+}
+
+struct Seeder {
+    current_index: usize,
+    seeds: Vec<i32>,
+    visited: HashSet<i32>,
+}
+
+impl Seeder {
+    fn next_seed(&mut self) -> Option<i32> {
+        let mut seed: Option<i32> = None;
+        loop {
+            if self.current_index == self.seeds.len() { break; }
+            let tmp = self.seeds[self.current_index];
+            if !self.visited.contains(&tmp) { 
+                seed = Some(tmp);
+                self.visited.insert(tmp); self.visited.insert(-tmp); self.visited.insert(pair(tmp)); self.visited.insert(-pair(tmp)); 
+                break;
+            }
+            self.current_index += 1;
+        }
+        seed
+    }
+}
+
+fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list: HashMap<i32, HashMap<i32, (u16, u16)>>, 
+        crib: Option<Crib>, kmers: &Kmers) {
     let mut reverse_edges: HashMap<i32, HashSet<i32>> = HashMap::new();
-    let mut all_vars: HashSet<i32> = HashSet::new();
+    let mut all_vars: Vec<i32> = Vec::new();
     for (var, varset) in adjacency_list.iter() {
-        for var2 in varset {
+        for (var2, _mols) in varset {
             let backset = reverse_edges.entry(*var2).or_insert(HashSet::new());
             backset.insert(*var);
-            all_vars.insert(*var2);
-
+            //all_vars.push(*var2);
         }
-        all_vars.insert(*var);
+        all_vars.push(*var);
     }
 
-    let mut visited: HashSet<i32> = HashSet::new();
+    let mut both = 0;
+    let mut one = 0;
+    let mut neither = 0;
+    for kmer in all_vars.iter() {
+        let pair = pair(*kmer);
+        match crib.as_ref() {
+            Some(cheat) => {
+                let mut first = false;
+                let mut second = false;
+                if let Some((contig, num, position)) = cheat.variants.get(&kmer.abs()) {
+                    //eprintln!("STARTVAR ref chr{}\t{}", contig, position); any = true;
+                    first = true;
+
+                } 
+                if let Some((contig, num, position)) = cheat.variants.get(&pair.abs()) {
+                    //eprintln!("STARTVAR alt chr{}\t{}", contig, position); any = true;
+                    second = true;
+                } 
+                if !(first || second) {
+                    //eprintln!("STARTVAR  ref/alt not in crib");
+                    neither +=1;
+                } else if (first && !second) || (!first && second) {
+                    one += 1;
+                } else if first && second {
+                    both += 1;
+                }
+            }
+            None => (),
+        }
+    }
+    eprintln!("one {}\tboth {}\tneither {}", one, both, neither);
+    //all_vars.shuffle(&mut thread_rng());
 
 
-    for startvar in all_vars {
-        if visited.contains(&startvar) { continue; }
-        let startpair = pair(startvar);
-        eprintln!("starting block with {} and {}", startvar, startpair);
-        visited.insert(startvar); visited.insert(-startvar); visited.insert(startpair); visited.insert(-startpair);
+    //let mut visited: HashSet<i32> = HashSet::new();
+    let mut seeds: Seeder = Seeder{
+        visited: HashSet::new(),
+        seeds: all_vars,
+        current_index: 0,
+    };
+    //eprintln!("phase_block\tblock_position\tcontig\torder");
+    let mut deferred_seed: Option<i32> = None;
+    loop {
+        let mut startvar;
+        //if visited.contains(&startvar) { continue; }
+        if let Some(seed) = deferred_seed { 
+            startvar = seed ; 
+            deferred_seed = None ; 
+            eprintln!("\nDeferred seed var {}", startvar);
+        }
+        else if let Some(seed) = seeds.next_seed() { 
+            startvar = seed; 
+            deferred_seed = Some(-seed); 
+            eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
+        }
+        else { eprintln!("DONE"); break; }
+        
+        if startvar % 2 != 0 {
+            startvar = pair(startvar); // ref
+        }
+        let startpair = pair(startvar); // alt
+        
+
+        match crib.as_ref() {
+            Some(cheat) => {
+                let mut any = false;
+                if let Some((contig, num, position)) = cheat.variants.get(&startvar.abs()) {
+                    eprintln!("STARTVAR ref{} chr{}\t{}\t{}\t{}", num, contig, position, 
+                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
+                } 
+                if let Some((contig, num, position)) = cheat.variants.get(&startpair.abs()) {
+                    eprintln!("STARTVAR alt{} chr{}\t{}\t{}\t{}", num, contig, position, 
+                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
+                } 
+                if !any {
+                    eprintln!("STARTVAR  ref/alt not in crib");
+                }
+            }
+            None => { eprintln!("STARTVAR NoContig\t{}\t{}", 
+                kmers.kmers.get(&startvar).unwrap(), kmers.kmers.get(&startpair).unwrap());
+            }
+        }
+        
+        //visited.insert(startvar); visited.insert(-startvar); visited.insert(startpair); visited.insert(-startpair);
+
         let mut forward_edges: HashMap<i32, [u8; 4]> = HashMap::new();
         let mut phasing: HashMap<i32, bool> = HashMap::new(); 
         phasing.insert(startvar.abs(), true);
         phasing.insert(startpair.abs(), false);
         let mut bfs_queue: VecDeque<i32> = VecDeque::new();
-        //bfs_queue.push_back(startvar);
         for var1 in [startvar, startpair].iter() {
-            //eprintln!("considering var {}", var1);
+            //eprintln!("here");
+            let var1 = *var1;
             if let Some(varset) = adjacency_list.get(&var1) {
-                let varmod2 = var1.abs() % 2;
-                for var2 in varset {
-                    let varhandle = *var2.min(&pair(*var2));
+                //eprintln!("varset len {}", varset.len());
+                let var1mod2 = var1.abs() % 2;
+                let mut var_vec: Vec<(i32, u16, u16)> = Vec::new();
+                for (var2, (mols, dist)) in varset {
+                    var_vec.push((*var2, *mols, *dist));
+                }
+                var_vec.sort_by(|a, b| a.2.cmp(&b.2));
+                for (var2, _mols, _dist) in var_vec {
+                    
+                    let mut varhandle = var2.min(pair(var2));
+                    if var2 > 0 {
+                        varhandle = var2.max(pair(var2));
+                    }
                     let var2mod2 = var2.abs() % 2;
+                    //eprintln!("var2 {}, varhandle {}, var1mod2 {}, var2mod2 {}", var2, varhandle, var1mod2, var2mod2);
                     if !forward_edges.contains_key(&varhandle) {
                         bfs_queue.push_back(varhandle);
                     }
-                    if varmod2 == 0 && var2mod2 == 0 {
-                        let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                    let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                    if var1mod2 == 0 && var2mod2 == 0 {
                         counts[0] += 1;
-                    } else if varmod2 == 1 && var2mod2 == 1 {
-                        let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                    } else if var1mod2 == 1 && var2mod2 == 1 {
                         counts[1] += 1;
-                    } else if varmod2 == 0 && var2mod2 == 1 {
-                        let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                    } else if var1mod2 == 0 && var2mod2 == 1 {
                         counts[2] += 1;
-                    } else if varmod2 == 1 && var2mod2 == 0 {
-                        let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                    } else if var1mod2 == 1 && var2mod2 == 0 {
                         counts[3] += 1;
-                    } else { eprintln!("wtf1");}
-                    //eprintln!("now varhandle {} has counts {:?}", varhandle, forward_edges.get(&varhandle).unwrap());
+                    } 
                 }
             }
         }
         let mut bfs_iter = 0;
-        let initial_bfs_len = bfs_queue.len();
         while bfs_queue.len() != 0 {
-            let mut refvar = bfs_queue.pop_front().unwrap();
-            //let mut altvar = pair(refvar);
+            let mut refvar = bfs_queue.pop_front().unwrap(); 
             let mut altvar = pair(refvar);
             let counts = forward_edges.get(&refvar).unwrap();
             
-            //forward_edges.remove(&refvar);
-            //eprintln!("popping var {} with counts {:?}", refvar, counts);
             let cis = (counts[0] + counts[1]) as f32;
             let trans = (counts[2] + counts[3]) as f32;
             let total = cis + trans;
-            //let alt_frac;
-            //if cis > trans { alt_frac = (counts[0].min(counts[1]) as f32)/total;  }
-            //else { alt_frac = (counts[2].min(counts[3]) as f32)/total; }
             let mut add = false;
-            //eprintln!("should i add? total {} > bfs_iter {} / initial_bfs_len {} is {} max(2) {} min(8) {}, do we? {}", 
-            //    total, bfs_iter, initial_bfs_len, bfs_iter/initial_bfs_len, (bfs_iter/initial_bfs_len).max(2), 
-            //    (bfs_iter/initial_bfs_len).max(2).min(8), total > (bfs_iter/initial_bfs_len).max(2).min(8) as f32);
             let mut phase = true;
-            if total >= (bfs_iter/initial_bfs_len).max(2).min(8) as f32 {
+
+            if (bfs_iter < 4 && total >= 2.0) || total >= 6.0 {
                 if cis.max(trans) / total > 0.95 {
                     if cis > trans {
                         let minor = counts[0].min(counts[1]) as f32;
                         if minor/total > 0.15 {
                             add = true;
-                            eprintln!("adding variant in cis {:?}",counts);
                         }
                     } else {
                         let minor = counts[2].min(counts[3]) as f32;
@@ -182,50 +538,325 @@ fn sparsembly2point0(adjacency_list: HashMap<i32, HashSet<i32>>) {
                             phase = false;
                             altvar = refvar;
                             refvar = pair(altvar);
-                            eprintln!("adding variant in trans {:?}", counts);
                         }
+                    }
+                }
+            }
+            if add {
+                match crib.as_ref() {
+                    Some(cheat) => {
+                        let mut any = false;
+                        if let Some((contig, num, position)) = cheat.variants.get(&refvar.abs()) {
+                            eprintln!("ADD ref{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts,
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                        } 
+                        if let Some((contig, num, position)) = cheat.variants.get(&altvar.abs()) {
+                            eprintln!("ADD alt{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts, 
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                        }   
+                        if !any {
+                            eprintln!("ADD alt/ref not in crib \t{:?}\t{:?}\t{}\t{}",  counts, 
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap());
+                        }
+                    }
+                    None => {}
+                }
+            } else {
+                match crib.as_ref() {
+                    Some(cheat) => {
+                        let mut any = false;
+                        if let Some((contig, num, position)) = cheat.variants.get(&refvar.abs()) {
+                            eprintln!("    FAIL ref{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts,
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                        } 
+                        if let Some((contig, num, position)) = cheat.variants.get(&altvar.abs()) {
+                            eprintln!("    FAIL alt{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts,
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                        } 
+                        if !any {
+                            eprintln!("    FAIL alt/ref not in crib {:?}\t{:?}\t{}\t{}", counts, 
+                                Status::get_status(refvar, variants, molecules, &phasing, &kmers),
+                                kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap());
+                        } 
+                    }
+                    None => { 
                     }
                 }
             }
             if add {
                 phasing.insert(refvar.abs(), true);
                 phasing.insert(altvar.abs(), false);
-                visited.insert(altvar); visited.insert(-altvar); visited.insert(refvar); visited.insert(-refvar);
+                seeds.visited.insert(altvar); seeds.visited.insert(-altvar); seeds.visited.insert(refvar); seeds.visited.insert(-refvar);
                 for var1 in [refvar, altvar].iter() {
+                    //eprintln!("here2");
+                    let var1 = *var1;
                     if let Some(varset) = adjacency_list.get(&var1) {
-                        let mut varmod2 = var1.abs() % 2;
-                        if !phase { varmod2 = (var1.abs() + 1) % 2}
-                        for var2 in varset {
+                        //eprintln!("varset2 length {}", varset.len());
+                        let mut var1mod2 = var1.abs() % 2;
+                        if !phase { var1mod2 = (var1.abs() + 1) % 2 }
+                        let mut var_vec: Vec<(i32, u16, u16)> = Vec::new();
+                        for (var2, (mols, dist)) in varset {
+                            var_vec.push((*var2, *mols, *dist));
+                        }
+                        var_vec.sort_by(|a, b| a.2.cmp(&b.2));
+                        for (var2, _mols, _dist) in var_vec {
+                            //eprintln!("var22 {} already visited? {}",var2, seeds.visited.contains(&var2));
+                            if seeds.visited.contains(&var2) { continue; }
                             let var2mod2 = var2.abs() % 2;
-                            let varhandle = *var2.min(&pair(*var2));
+                            let mut varhandle = var2.min(pair(var2));
+                            if var2 > 0 {
+                                varhandle = var2.max(pair(var2));
+                            }
                             if !forward_edges.contains_key(&varhandle) {
                                 bfs_queue.push_back(varhandle);
                             }
-                            if varmod2 == 0 && var2mod2 == 0 {
-                                let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                            let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                            if var1mod2 == 0 && var2mod2 == 0 {
                                 counts[0] += 1;
-                            } else if varmod2 == 1 && var2mod2 == 1 {
-                                let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                            } else if var1mod2 == 1 && var2mod2 == 1 {
                                 counts[1] += 1;
-                            } else if varmod2 == 0 && var2mod2 == 1 {
-                                let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                            } else if var1mod2 == 0 && var2mod2 == 1 {
                                 counts[2] += 1;
-                            } else  if varmod2 == 1 && var2mod2 == 0 {
-                                let counts = forward_edges.entry(varhandle).or_insert([0;4]);
+                            } else  if var1mod2 == 1 && var2mod2 == 0 {
                                 counts[3] += 1;
                             }
                             else { eprintln!("wtf");}
-                            //eprintln!("bfs now varhandle {} has counts {:?}", varhandle, forward_edges.get(&varhandle).unwrap());
                         } 
+                    }
+                }
+                
+            }
+            else {
+                let hom1 = (counts[0] + counts[3]) as f32;
+                let hom2 = (counts[1] + counts[2]) as f32;
+                let total = hom1+hom2;
+                if hom1.max(hom2) / total > 0.95 {
+                    
+                    if hom1 > hom2 {
+                        let minor = counts[0].min(counts[3]) as f32;
+                        let major = counts[0].max(counts[3]) as f32;
+                        //if minor/total > 0.1 {
+                        //    eprintln!("homozygous 1\t{:?}\n{:?}", counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //} else if major/total > 0.9 {
+                        //    eprintln!("heterozygous indel 1\t{:?}\n{:?}", counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //} else {
+                        //    eprintln!("no idea {:?}\n{:?}",counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //}
+                    } else {
+                        let minor = counts[1].min(counts[2]) as f32;
+                        let major = counts[1].max(counts[2]) as f32;
+                        //if minor/total > 0.1 {
+                        //    eprintln!("homozygous 2\t{:?}\n{:?}", counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //} else if major/total > 0.9 {
+                        //    eprintln!("heterozygous indel 2\t{:?}\n{:?}", counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //} else {
+                        //    eprintln!("no idea {:?}\n{:?}",counts, 
+                        //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
+                        //}
                     }
                 }
             }
             bfs_iter += 1;
-        }
+        } 
+        //if phasing.len()/2 > 4 {
+        //    phase_block += 1;
+        //}
+        // ok lets see what we can do on linearizing
+        linearize(variants, molecules, phasing, kmers);
         
-        eprintln!("phase block contains {} variants",phasing.len()/2); 
+        //eprintln!("phase block contains {} variants",phasing.len()/2); 
 
     }
+    let mut single_jump: HashMap<(i32, i32), [u8; 4]> = HashMap::new();
+    for mol in molecules.get_long_read_molecules() {
+        let mut varlist: Vec<i32> = Vec::new();
+        for var in molecules.get_long_read_variants_ordered(*mol) {
+            varlist.push(*var);
+        }
+        if varlist.len() < 2 {continue;}
+        for vardex in 0..(varlist.len()-1) {
+            let var1 = varlist[vardex];
+            for vardex2 in (vardex+1)..(varlist.len()) {
+                //let vardex2 = vardex + 1;
+                let var2 = varlist[vardex2];
+                let min = var1.abs().min(var2.abs());
+                let max = var1.abs().max(var2.abs());
+                if vardex2 == vardex + 1 {
+                    let counts = single_jump.entry((min, max)).or_insert([0;4]);
+                    if var1.abs() < var2.abs() {
+                        if (var1 > 0 && var2 > 0) || (var1 < 0 && var2 < 0) { counts[0] += 1; }
+                        else if (var1 > 0 && var2 < 0) || (var1 < 0 && var2 > 0) { counts[1] += 1; }
+                    } else {
+                        if (var1 > 0 && var2 > 0) || (var1 < 0 && var2 < 0) { counts[2] += 1; }
+                        else if (var1 > 0 && var2 < 0) || (var1 < 0 && var2 > 0) { counts[3] += 1; }
+                    }
+                }
+            }
+        }
+    }
+    let mut single_jump_adjacency_list: HashMap<i32, HashMap<i32, usize>> = HashMap::new();
+
+    for ((var1, var2), counts) in single_jump.iter() {
+        if seeds.visited.contains(var1) && seeds.visited.contains(var2) {
+            let mut max = 0;
+            let mut maxdex = 0;
+            for (index, count) in counts.iter().enumerate() {
+                if *count > max {
+                    max = *count;
+                    maxdex = index;
+                }
+            }
+            if maxdex == 0 {
+                let adjacency_map = single_jump_adjacency_list.entry(*var1).or_insert(HashMap::new());
+                let count = adjacency_map.entry(*var2).or_insert(0);
+                *count += 1;
+                let adjacency_map = single_jump_adjacency_list.entry(-var2).or_insert(HashMap::new());
+                let count = adjacency_map.entry(-var1).or_insert(0);
+                *count += 1;
+            } else if maxdex == 1 {
+                let adjacency_map = single_jump_adjacency_list.entry(*var1).or_insert(HashMap::new());
+                let count = adjacency_map.entry(-var2).or_insert(0);
+                *count += 1;
+                let adjacency_map = single_jump_adjacency_list.entry(*var2).or_insert(HashMap::new());
+                let count = adjacency_map.entry(-var1).or_insert(0);
+                *count += 1;
+            } else if maxdex == 2 {
+                let adjacency_map = single_jump_adjacency_list.entry(*var2).or_insert(HashMap::new());
+                let count = adjacency_map.entry(*var1).or_insert(0);
+                *count += 1;
+                let adjacency_map = single_jump_adjacency_list.entry(-var1).or_insert(HashMap::new());
+                let count = adjacency_map.entry(-var2).or_insert(0);
+                *count += 1;
+            } else {
+                let adjacency_map = single_jump_adjacency_list.entry(-var2).or_insert(HashMap::new());
+                let count = adjacency_map.entry(*var1).or_insert(0);
+                *count += 1;
+                let adjacency_map = single_jump_adjacency_list.entry(-var1).or_insert(HashMap::new());
+                let count = adjacency_map.entry(*var2).or_insert(0);
+                *count += 1;
+            }
+        }
+    }
+
+}
+
+fn linearize(variants: &Variants, molecules: &Molecules, phasing: HashMap<i32, bool>, kmers: &Kmers) {
+
+    let mut order_counts: HashMap<i32, HashMap<i32, usize>> = HashMap::new();
+
+    for (var, _phase) in &phasing {
+        let mut var = *var;
+        for mol in variants.get_long_read_molecules(var) {
+            let mut start = false;
+            //if *mol < 0 { var = -var; }
+            for var2 in molecules.get_long_read_variants_ordered(mol.abs()) {
+                if var2.abs() == var {
+                    start = true; 
+                    if *var2 < 0 { var = -var; }
+                    continue;
+                }
+                if start {
+                    if phasing.contains_key(&var2.abs()) {
+                        //eprintln!("from mol {} adding counts for {} -> {} and {} -> {}",mol, var, var2, -var2, -var);
+                        {
+                            let counts = order_counts.entry(var).or_insert(HashMap::new());
+                            let count = counts.entry(*var2).or_insert(0);
+                            *count += 1;
+                        }
+                        {
+                            let counts = order_counts.entry(-var2).or_insert(HashMap::new());
+                            let count = counts.entry(-var).or_insert(0);
+                            *count += 1;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+    }
+    // calculate winners
+    let mut order_map: HashMap<i32, i32> = HashMap::new();
+    for (var, varcounts) in order_counts.iter() {
+        let mut count_vec: Vec<(&i32, &usize)> = varcounts.iter().collect();
+        count_vec.sort_by(|a, b| b.1.cmp(a.1));
+        /*if count_vec.len() > 1 {
+            eprintln!("var {} best {} count {} second best {} second best count {}", var, count_vec[0].0, count_vec[0].1, count_vec[1].0, count_vec[1].1);
+        } else {
+            eprintln!("var {} best {} count {}", var, count_vec[0].0, count_vec[0].1);
+        }*/
+        if varcounts.len() == 1 || (*count_vec[0].1 as f32)/((count_vec[0].1 + count_vec[1].1) as f32) > 0.9 {
+            //eprintln!("\t{} -- {};", kmers.kmers.get(&var.abs()).unwrap(), kmers.kmers.get(&count_vec[0].0.abs()).unwrap());
+            order_map.insert(*var, *count_vec[0].0);
+        } //else {
+        //    eprintln!("didn't have good support for best next {}",var);
+        //}
+    }
+    
+    
+    let mut used: HashSet<i32> = HashSet::new();
+    
+    let mut orderings: Vec<Vec<i32>> = Vec::new();
+    for (var, phase) in &phasing {
+        if used.contains(var) { continue; }
+        let mut cur_var = *var;
+        used.insert(cur_var); 
+        // starting at cur_var and walk till end
+        loop {
+            //eprintln!("cur var {}", cur_var);
+            if order_map.contains_key(&cur_var) {
+                let next_var = *order_map.get(&cur_var).unwrap();
+                if !used.contains(&next_var) {
+                    cur_var = next_var;
+                    used.insert(cur_var);
+                } else { break; }
+            } else {
+                //eprintln!("break");
+                break;
+            }
+        }
+        // start at end (cur_var) and walk till other end, this is a path
+        let mut order: Vec<i32> = Vec::new();
+        cur_var = -cur_var;
+        used.insert(cur_var);
+        order.push(cur_var);
+        loop {
+            //eprintln!("cur var2 {}",cur_var);
+            if order_map.contains_key(&cur_var) {
+                let next_var = *order_map.get(&cur_var).unwrap();
+                if !used.contains(&next_var) {
+                    cur_var = next_var;
+                    used.insert(cur_var);
+                    order.push(cur_var);
+                } else {
+                     orderings.push(order);
+                    break;
+                }
+            } else {
+                //eprintln!("break2");
+                orderings.push(order);
+                break;
+            }
+        }
+       
+    }
+    /*eprintln!("for this phase block we have {} orderings",orderings.len());
+    for (index, ordering) in orderings.iter().enumerate() {
+        eprintln!("\tordering {}",index);
+        for var in ordering {
+            eprintln!("\t\t{}\t{}",var, phasing.get(&var.abs()).unwrap());
+        }
+    }*/
 
 }
 
@@ -240,35 +871,48 @@ fn pair(v: i32) -> i32 {
     }
 }
 
-fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (HashMap<i32,HashSet<i32>>, HashMap<i32, HashSet<i32>>) {
-    let mut graph: HashMap<(i32, i32), [u16; 4]> = HashMap::new();
-    
+fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers, crib: &Option<Crib>) -> (HashMap<i32,HashSet<i32>>, HashMap<i32, HashMap<i32, (u16, u16)>>) {
+    let mut graph: HashMap<(i32, i32), [u16; 8]> = HashMap::new();
+    //eprintln!("sparsembly");
     for mol in molecules.get_long_read_molecules() {
-        let mut varlist: Vec<i32> = Vec::new();
-        for var in molecules.get_long_read_variants_ordered(*mol) {
-            varlist.push(*var);
+        let mut varlist: Vec<(i32, i32)> = Vec::new();
+        for (var, pos) in molecules.get_long_read_variants_and_positions(*mol) {
+            varlist.push((*var, *pos));
         }
         if varlist.len() < 2 {continue;}
         for vardex in 0..(varlist.len()-1) {
-            let var1 = varlist[vardex];
+            let var1 = varlist[vardex].0;
+            let pos1 = varlist[vardex].1;
             for vardex2 in (vardex+1)..(varlist.len()) {
-            //let vardex2 = vardex + 1;
-                let var2 = varlist[vardex2];
+                let var2 = varlist[vardex2].0;
+                let pos2 = varlist[vardex2].1;
                 let min = var1.abs().min(var2.abs());
                 let max = var1.abs().max(var2.abs());
-                let counts = graph.entry((min, max)).or_insert([0;4]);
+                let counts = graph.entry((min, max)).or_insert([0;8]);
+                // counts encodes the following
+                // counts[0] = counts of for1 -> for2 + rev2 -> rev1
+                // counts[1] = counts of for1 -> rev2 + for2 -> rev1
+                // counts[2] = counts of for2 -> for1 + ref1 -> rev2
+                // counts[3] = counts of rev2 -> for1 + for2 -> rev1
+                // then counts[4-7] are the sum of distances between the kmers (so counts[4]/counts[0] is average distance)
                 if var1.abs() < var2.abs() {
-                    if (var1 > 0 && var2 > 0) || (var1 < 0 && var2 < 0) { counts[0] += 1; }
-                    else if (var1 > 0 && var2 < 0) || (var1 < 0 && var2 > 0) { counts[1] += 1; }
+                    if var1 > 0 && var2 > 0 { counts[0] += 1; counts[4] += (pos2-pos1) as u16; }
+                    else if var1 > 0 && var2 < 0 { counts[1] += 1; counts[5] += (pos2-pos1) as u16; }
+                    else if var1 < 0 && var2 < 0 { counts[2] += 1; counts[6] += (pos2-pos1) as u16;}
+                    else { counts[3] += 1; counts[7] += (pos2-pos1) as u16; }
                 } else {
-                    if (var1 > 0 && var2 > 0) || (var1 < 0 && var2 < 0) { counts[2] += 1; }
-                    else if (var1 > 0 && var2 < 0) || (var1 < 0 && var2 > 0) { counts[3] += 1; }
+                    if var2 < 0 && var1 < 0 { counts[0] += 1; counts[4] += (pos2-pos1) as u16; }
+                    else if var2 < 0 && var1 > 0 { counts[1] += 1; counts[5] += (pos2-pos1) as u16; }
+                    else if var2 > 0 && var1 > 0 { counts[2] += 1; counts[6] += (pos2-pos1) as u16; }
+                    else { counts[3] += 1; counts[7] += (pos2-pos1) as u16; }
                 }
             }
         }
     }
     //eprintln!("graph size {}", graph.len());
-    let mut adjacency_list: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut adjacency_list: HashMap<i32, HashMap<i32, (u16, u16)>> = HashMap::new();
+    
+
     let mut het_vars: Vec<i32> = Vec::new();
     let mut het_var_index: HashMap<i32, usize> = HashMap::new();
     //println!("graph longreads {{");
@@ -287,6 +931,7 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
         let mut maxdex = 0;
         let mut total = 0;
         for (index, count) in counts.iter().enumerate() {
+            if index > 3 { break; }
             if *count > max {
                 max = *count;
                 maxdex = index;
@@ -298,46 +943,67 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
         let var1compdex = *het_var_index.get(&-var1).unwrap();
         let var2dex = *het_var_index.get(var2).unwrap();
         let var2compdex = *het_var_index.get(&-var2).unwrap();
-        //eprintln!("duh {} {} {:?}",var1, var2, counts);
+        //eprintln!("duh {} {} {:?}", var1, var2, counts);
         let percent = (max as f32)/(total as f32);
-        if percent > 0.95 {
+        let distance = counts[maxdex + 4]/max;
+        /*
+        if *var1 == 2304 || *var2 == 2304 || *var1 == 1726 || *var2 ==1726 {
+            eprintln!("var1 {}\tvar2 {}\tcounts {:?}", var1, var2, counts);
+            match crib.as_ref() {
+                Some(cheat) => {
+                    //eprintln!("here, we have crib");
+                    if let Some((contig, _order, position)) = cheat.variants.get(&pair(*var1)) {
+                        eprintln!("cribsheet var1 {}\t{}", contig, position);
+                    } 
+                    if let Some((contig, _order, position)) = cheat.variants.get(&pair(*var2)) {
+                        eprintln!("cribsheet var2 {}\t{}", contig, position);
+                    }
+                }
+                None => { eprintln!("NoContig\t{}\t{}", 
+                    kmers.kmers.get(var1).unwrap(), kmers.kmers.get(var2).unwrap());
+                }
+            }
+        }
+        */
+        if percent > 0.9 {
             //merge(&mut union_find, var1dex, var2dex);
             if maxdex == 0 {
                 merge(&mut union_find, var1dex, var2dex);
                 merge(&mut union_find, var1compdex, var2compdex);
                 //println!("n{} -> n{};", var1, var2);
                 //println!("nC{} -> nC{}", var2, var1);
-                let adjacency_set = adjacency_list.entry(*var1).or_insert(HashSet::new());
-                adjacency_set.insert(*var2);
-                let adjacency_set = adjacency_list.entry(-var2).or_insert(HashSet::new());
-                adjacency_set.insert(-var1);
+                let adjacency_set = adjacency_list.entry(*var1).or_insert(HashMap::new());
+                adjacency_set.insert(*var2, (max, distance));
+                let adjacency_set = adjacency_list.entry(-*var2).or_insert(HashMap::new());
+                adjacency_set.insert(-*var1, (max, distance));
+
             } else if maxdex == 1 {
                 merge(&mut union_find, var1dex, var2compdex);
                 merge(&mut union_find, var1compdex, var2dex);
                 //println!("n{} -> nC{};", var1, var2);
                 //println!("n{} -> nC{}", var2, var1);
-                let adjacency_set = adjacency_list.entry(*var1).or_insert(HashSet::new());
-                adjacency_set.insert(-var2);
-                let adjacency_set = adjacency_list.entry(-var2).or_insert(HashSet::new());
-                adjacency_set.insert(*var1);
+                let adjacency_set = adjacency_list.entry(*var1).or_insert(HashMap::new());
+                adjacency_set.insert(-*var2, (max, distance));
+                let adjacency_set = adjacency_list.entry(*var2).or_insert(HashMap::new());
+                adjacency_set.insert(-*var1, (max, distance));
             } else if maxdex == 2 {
                 merge(&mut union_find, var1dex, var2dex);
                 merge(&mut union_find, var1compdex, var2compdex);
                 //println!("n{} -> n{};", var2, var1);
                 //println!("nC{} -> nC{};", var1, var2);
-                let adjacency_set = adjacency_list.entry(*var2).or_insert(HashSet::new());
-                adjacency_set.insert(*var1);
-                let adjacency_set = adjacency_list.entry(-var1).or_insert(HashSet::new());
-                adjacency_set.insert(-var2);
+                let adjacency_set = adjacency_list.entry(*var2).or_insert(HashMap::new());
+                adjacency_set.insert(*var1, (max, distance));
+                let adjacency_set = adjacency_list.entry(-*var1).or_insert(HashMap::new());
+                adjacency_set.insert(-*var2, (max, distance));
             } else if maxdex == 3 {
                 merge(&mut union_find, var1dex, var2compdex);
                 merge(&mut union_find, var1compdex, var2dex);
                 //println!("nC{} -> n{};", var2, var1);
                 //println!("nC{} -> n{}", var1, var2);
-                let adjacency_set = adjacency_list.entry(-var2).or_insert(HashSet::new());
-                adjacency_set.insert(*var1);
-                let adjacency_set = adjacency_list.entry(-var1).or_insert(HashSet::new());
-                adjacency_set.insert(*var2);
+                let adjacency_set = adjacency_list.entry(-*var2).or_insert(HashMap::new());
+                adjacency_set.insert(*var1, (max, distance));
+                let adjacency_set = adjacency_list.entry(-*var1).or_insert(HashMap::new());
+                adjacency_set.insert(*var2, (max, distance));
             }
         } 
     }
@@ -419,7 +1085,7 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
     while vars_of_interest.len() < 4000 {
         if let Some(var) = bfs.pop_front() {
             if let Some(varlist) = adjacency_list.get(&var) {
-                for var2 in varlist {
+                for (var2, mols) in varlist {
                     //eprintln!("node {}",var2);
                     if vars_of_interest.contains(var2) {
                         continue;
@@ -442,8 +1108,9 @@ fn sparsembly(molecules: &Molecules, variants: &Variants, kmers: &Kmers) -> (Has
         children.insert(node);
         //println!("\tn{}{} [color=red];",prefix, node.abs());
     }
+    
     for var1 in adjacency_list.keys() {
-        for var2 in adjacency_list.get(var1).unwrap() {
+        for (var2, mols) in adjacency_list.get(var1).unwrap() {
             if !vars_of_interest.contains(var1) || !vars_of_interest.contains(var2) {continue;}
             let mut prefix1 = "";
             let mut prefix2 = "";
@@ -2596,6 +3263,9 @@ struct Molecules {
     hic_molecules: HashMap<i32, Vec<i32>>,
     long_read_molecules: HashMap<i32, Vec<i32>>,
     long_read_molecule_list: HashMap<i32, Vec<i32>>,
+    long_read_het_molecules: HashMap<i32, Vec<i32>>,
+    long_read_het_molecule_list: HashMap<i32, Vec<i32>>,
+    long_read_molecule_positions: HashMap<i32, Vec<i32>>,
     hom_linked_read_molecules: HashMap<i32, HashSet<i32>>,
     hom_long_read_molecules: HashMap<i32, HashSet<i32>>,
     hom_hic_molecules: HashMap<i32, HashSet<i32>>,
@@ -2627,12 +3297,26 @@ impl Molecules {
             None => Box::new(std::iter::empty()),
         }
     }
+
     fn get_long_read_variants_ordered<'a>(&'a self, mol: i32) -> Box<dyn Iterator<Item=&i32>+'a> {
         match self.long_read_molecule_list.get(&mol.abs()) {
             Some(x) => Box::new(x.iter()),
             None => Box::new(std::iter::empty()),
         }
     }
+    fn get_long_read_variants_and_positions<'a>(&'a self, mol: i32) -> Box<dyn Iterator<Item=(&i32, &i32)>+'a> {
+        match self.long_read_molecule_list.get(&mol.abs()) {
+
+            Some(x) => {
+                match self.long_read_molecule_positions.get(&mol.abs()) {
+                    Some(y) => Box::new(x.iter().zip(y.iter())),
+                    None => Box::new(std::iter::empty()),
+                }
+            },
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
     fn get_hic_variants<'a>(&'a self, mol: i32) -> Box<dyn Iterator<Item=&i32>+'a> {
         match self.hic_molecules.get(&mol.abs()) {
             Some(x) => Box::new(x.iter()),
@@ -2795,12 +3479,129 @@ enum DataType {
     PBLR, //pb and lr
 }
 
+struct Crib {
+    variants: HashMap<i32, (i32, usize, usize)>, // map from kmer_id to crib molecule id and number seen and position
+    molecules: HashMap<i32, HashMap<i32, (usize, usize)>>, // map from crib molecule id to a map from kmer_id to order index
+}
+
+fn load_crib(crib: &String, kmers: &Kmers) -> Crib {
+    let mut mol_id = 1;
+    let mut variants: HashMap<i32, (i32, usize, usize)> = HashMap::new();
+    let mut molecules: HashMap<i32, HashMap<i32, (usize, usize)>> = HashMap::new();
+
+
+    let mut paired_het_variants: HashSet<i32> = HashSet::new();
+    let mut long_read_variants: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut long_read_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut long_read_molecule_list: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut hom_long_read_kmers: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut hom_long_read_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut bufi32 = [0u8; 4];
+    let mut buf2 = [0u8; 4];
+    let f = File::open(crib)
+        .expect(&format!("Unable to open crib {}", crib));
+    let mut reader = BufReader::new(f);
+    let mut ordered_kmers: Vec<(i32, i32, usize)> = Vec::new();
+    'outer: loop { // ok here we go again. Pacbio/longread data. Format is i32s until you hit a zero. when you hit two zeros you are done
+        let mut vars: HashSet<i32> = HashSet::new();
+        let mut varlist: Vec<i32> = Vec::new();
+        let mut hom_kmers: HashSet<i32> = HashSet::new();
+        //let mut het_kmers: HashSet<i32> = HashSet::new();
+        let mut order = 0;
+        loop {
+            if let Some(kmer_id) = eat_i32(&mut reader, &mut bufi32) {
+                if kmer_id == 0 { break; }
+                if let Some(position) = eat_i32(&mut reader, &mut buf2){
+                    let position = position + 10;
+                    //eprintln!("position {}", position);
+                    let mut molecule = 0;
+                    let mut number = 0;
+                    let mut position1 = 0;
+                    let mut has = false;
+                   
+
+                    
+                    let var_order = molecules.entry(mol_id).or_insert(HashMap::new());
+                    var_order.insert(kmer_id.abs(), (order, position as usize));
+                    match kmers.kmer_type.get(&kmer_id) {
+                        Some(KmerType::PairedHet) => {
+                            ordered_kmers.push((mol_id, kmer_id.abs(), position as usize));
+                            //eprintln!("paired het");
+                            vars.insert(kmer_id);
+                            paired_het_variants.insert(kmer_id.abs());
+                            varlist.push(kmer_id);
+                             if let Some((mol, num, pos)) = variants.get(&kmer_id.abs()) {
+                                molecule = *mol;
+                                number = *num;
+                                position1 = *pos;
+                                has = true;
+                            } else {
+                                variants.insert(kmer_id.abs(), (mol_id, 1, position as usize));
+                            }
+                            if has {
+                                variants.insert(kmer_id.abs(), (mol_id, number+1, position as usize));
+                            }
+                        },
+                        Some(KmerType::UnpairedHet) => {
+                            //het_kmers.insert(kmer_id);
+                        },
+                        Some(KmerType::Homozygous) => {
+                            hom_kmers.insert(kmer_id);
+                        },
+                        None => { eprintln!("no kmer type? {}", kmer_id); }
+                    }
+                }
+                
+                
+            } else { break 'outer; }
+            order += 1;
+        }
+            for kmer_id in vars.iter() {
+                let var_bcs = long_read_variants.entry(kmer_id.abs()).or_insert(HashSet::new());
+                if kmer_id < &0 { var_bcs.insert(-mol_id); } else { var_bcs.insert(mol_id); }
+            }
+            long_read_molecules.insert(mol_id, vars); 
+            long_read_molecule_list.insert(mol_id, varlist);
+            
+        if hom_kmers.len() > 0 {
+            for kmer_id in hom_kmers.iter() {
+                let var_bcs = hom_long_read_kmers.entry(*kmer_id).or_insert(HashSet::new());
+                var_bcs.insert(mol_id);
+            }
+        }
+
+
+
+        hom_long_read_molecules.insert(mol_id, hom_kmers);
+        mol_id += 1;
+        
+    }
+    println!("{}",ordered_kmers.len());
+    println!("chrom\tpos\tkmer\thits\tkmer_count\thas_pair\tpair_chrom\tpair_pos\tpair_id\tpair_hits\tpair_count");
+    for (mol, kmer, position) in ordered_kmers {
+        let (_, num, _) = variants.get(&kmer).unwrap();
+        if let Some((mol2, num2, position2)) = variants.get(&pair(kmer.abs())) {
+            println!("{}\t{}\t{}\t{}\t{}\ttrue\t{}\t{}\t{}\t{}\t{}", mol, position, kmers.kmers.get(&kmer).unwrap(), num, kmers.kmer_counts.get(&kmer).unwrap(), 
+                mol2, position2, kmers.kmers.get(&pair(kmer)).unwrap(), num2, kmers.kmer_counts.get(&pair(kmer.abs())).unwrap());
+        } else {
+            println!("{}\t{}\t{}\t{}\t{}\tfalse\tnone\tnone\tnone\tnone\tnone", mol, position, kmers.kmers.get(&kmer).unwrap(), num, kmers.kmer_counts.get(&kmer).unwrap());
+        }
+        
+    } 
+
+    Crib{
+        variants: variants,
+        molecules: molecules,
+    }
+}
+
 #[allow(dead_code)]
 struct Variants {
     paired_het_variants: HashSet<i32>,
     linked_read_variants: Vec<Vec<i32>>,
     hic_variants: Vec<Vec<i32>>,
     long_read_variants: Vec<Vec<i32>>,
+    long_read_het_variants: Vec<Vec<i32>>,
     hom_linked_read_variants: HashMap<i32, HashSet<i32>>,
     hom_long_read_variants: HashMap<i32, HashSet<i32>>,
     hom_hic_variants: HashMap<i32, HashSet<i32>>,
@@ -2818,6 +3619,9 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
     let hic_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut long_read_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut long_read_molecule_list: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut long_read_molecule_positions: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut long_read_het_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut long_read_het_molecule_list: HashMap<i32, Vec<i32>> = HashMap::new();
 
     let mut paired_het_variants: HashSet<i32> = HashSet::new();
 
@@ -2836,6 +3640,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
     let het_hic_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
 
     let mut bufi32 = [0u8; 4];
+    let mut buf2 = [0u8; 4];
     let mut max_var = 0;
     let mut max_molid = 0;
     for txg_file in params.txg_mols.iter() {
@@ -3009,26 +3814,35 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
         'outer: loop { // ok here we go again. Pacbio/longread data. Format is i32s until you hit a zero. when you hit two zeros you are done
             let mut vars: HashSet<i32> = HashSet::new();
             let mut varlist: Vec<i32> = Vec::new();
+            let mut varlist_positions: Vec<i32> = Vec::new();
             let mut hom_kmers: HashSet<i32> = HashSet::new();
-            //let mut het_kmers: HashSet<i32> = HashSet::new();
+            let mut het_kmers: HashSet<i32> = HashSet::new();
+            let mut het_kmers_list: Vec<i32> = Vec::new();
             loop {
                 if let Some(kmer_id) = eat_i32(&mut reader, &mut bufi32) {
+                    
                     if kmer_id == 0 { break; }
-                    if kmer_id.abs() > max_var { max_var = kmer_id.abs(); }
-                    match kmers.kmer_type.get(&kmer_id) {
-                        Some(KmerType::PairedHet) => {
-                            vars.insert(kmer_id);
-                            paired_het_variants.insert(kmer_id.abs());
-                            varlist.push(kmer_id);
-                        },
-                        Some(KmerType::UnpairedHet) => {
-                            //het_kmers.insert(kmer_id);
-                        },
-                        Some(KmerType::Homozygous) => {
-                            hom_kmers.insert(kmer_id);
-                        },
-                        None => { eprintln!("no kmer type? {}", kmer_id); }
+                    if let Some(position) = eat_i32(&mut reader, &mut buf2) {
+                        let position = position + 10;
+                        if kmer_id.abs() > max_var { max_var = kmer_id.abs(); }
+                        match kmers.kmer_type.get(&kmer_id) {
+                            Some(KmerType::PairedHet) => {
+                                vars.insert(kmer_id);
+                                paired_het_variants.insert(kmer_id.abs());
+                                varlist.push(kmer_id);
+                                varlist_positions.push(position);
+                            },
+                            Some(KmerType::UnpairedHet) => {
+                                het_kmers.insert(kmer_id);
+                                het_kmers_list.push(kmer_id);
+                            },
+                            Some(KmerType::Homozygous) => {
+                                hom_kmers.insert(kmer_id);
+                            },
+                            None => { eprintln!("no kmer type? {}", kmer_id); }
+                        }
                     }
+                    //eat_i32(&mut reader, &mut bufi32); //TODO get rid of this old format
                     
                 } else { break 'outer; }
             }
@@ -3039,6 +3853,10 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
                 }
                 long_read_molecules.insert(mol_id, vars); 
                 long_read_molecule_list.insert(mol_id, varlist);
+                long_read_molecule_positions.insert(mol_id, varlist_positions);
+                long_read_het_molecules.insert(mol_id, het_kmers);
+                long_read_het_molecule_list.insert(mol_id, het_kmers_list);
+                
                 
             //}
             /*
@@ -3077,15 +3895,18 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
     let mut txg_vars: Vec<Vec<i32>> = Vec::new();
     let mut hic_vars: Vec<Vec<i32>> = Vec::new();
     let mut pb_vars: Vec<Vec<i32>> = Vec::new();
+    let mut pb_het_vars: Vec<Vec<i32>> = Vec::new();
     for _i in 0..(max_var+1) {
         txg_vars.push(Vec::new());
         hic_vars.push(Vec::new());
         pb_vars.push(Vec::new());
+        pb_het_vars.push(Vec::new());
     }
 
     let mut txg_mols: HashMap<i32, Vec<i32>> = HashMap::new();
     let mut hic_mols: HashMap<i32, Vec<i32>> = HashMap::new();
     let mut pb_mols: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut pb_het_mols: HashMap<i32, Vec<i32>> = HashMap::new();
 
     for (mol_id, kmer_ids) in linked_read_molecules {
         let mut kmer_ids_sorted = kmer_ids.iter().cloned().collect::<Vec<i32>>();
@@ -3119,16 +3940,29 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
         }
         pb_mols.insert(mol_id, kmer_ids_sorted);
     }
+    for (mol_id, kmer_ids) in long_read_het_molecules {
+        let mut kmer_ids_sorted = kmer_ids.iter().cloned().collect::<Vec<i32>>();
+        kmer_ids_sorted.sort_by(| a, b | a.abs().cmp(&b.abs()));
+        for var in kmer_ids_sorted.iter() {
+            if var < &0 {
+                pb_het_vars[(var.abs() - 1) as usize].push(-mol_id);
+            } else { pb_het_vars[(var - 1) as usize].push(mol_id) }
+
+        }
+        pb_het_mols.insert(mol_id, kmer_ids_sorted);
+    }
     for i in 0..max_var {
         txg_vars[i as usize].sort_by(| a, b | a.abs().cmp(&b.abs()));
         hic_vars[i as usize].sort_by(| a, b | a.abs().cmp(&b.abs()));
         pb_vars[i as usize].sort_by(| a, b | a.abs().cmp(&b.abs()));
+        pb_het_vars[i as usize].sort_by(| a, b | a.abs().cmp(&b.abs()));
     }
     let vars = Variants{
         paired_het_variants: paired_het_variants,
         linked_read_variants: txg_vars,
         hic_variants: hic_vars,
         long_read_variants: pb_vars,
+        long_read_het_variants: pb_het_vars,
         hom_linked_read_variants: hom_linked_read_kmers,
         hom_long_read_variants: hom_long_read_kmers,
         hom_hic_variants: hom_hic_kmers,
@@ -3142,6 +3976,9 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
         hic_molecules: hic_mols,
         long_read_molecules: pb_mols,
         long_read_molecule_list: long_read_molecule_list,
+        long_read_molecule_positions: long_read_molecule_positions,
+        long_read_het_molecules: pb_het_mols,
+        long_read_het_molecule_list: long_read_het_molecule_list,
         hom_linked_read_molecules: hom_linked_read_molecules,
         hom_long_read_molecules: hom_long_read_molecules,
         hom_hic_molecules: hom_hic_molecules,
@@ -3194,6 +4031,8 @@ fn load_kmers(kmerfile: &String) -> Kmers {
             "HET\t" => {
                 kmer_type.insert(kmer_id, KmerType::UnpairedHet);
                 kmer_type.insert(-kmer_id, KmerType::UnpairedHet);
+                kmers.insert(kmer_id, std::str::from_utf8(&buf1[0..(bytes1-1)]).unwrap().to_string());
+                //println!("")
             },
             "HOM\t" => {
                 kmer_type.insert(kmer_id, KmerType::Homozygous);
@@ -3225,6 +4064,7 @@ fn load_kmers(kmerfile: &String) -> Kmers {
         kmer_type: kmer_type,
     }
 }
+
 
 #[allow(dead_code)]
 fn load_variants(params: &Params, whitelist: &HashMap<String, i32>) -> 
@@ -3356,6 +4196,7 @@ struct Params {
     hic_mols: Vec<String>,
     longread_fqs: Vec<String>,
     output: String,
+    crib: Option<String>,
 }
 
 fn load_params() -> Params {
@@ -3394,6 +4235,10 @@ fn load_params() -> Params {
     };
     let mut hic_mols: Vec<String> = Vec::new();
     for x in hic_tmp { hic_mols.push(x.to_string()); }
+    let crib: Option<String> = match params.value_of("crib") {
+        Some(x) => Some(x.to_string()),
+        None => None,
+    };
     Params {
         variants: variants.to_string(),
         ploidy: ploidy,
@@ -3404,6 +4249,7 @@ fn load_params() -> Params {
         hic_mols: hic_mols,
         longread_fqs: longread_fqs,
         output: output.to_string(),
+        crib: crib,
     }
 }
 

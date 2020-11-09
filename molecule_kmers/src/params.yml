@@ -72,3 +72,8 @@ args:
         required: false
         takes_value: true
         help: max number of threads. currently only paralelized over fastqs (and not across techs)
+    - kmer_size:
+        short: k
+        long: kmer_size
+        required: true
+        help: kmer_size

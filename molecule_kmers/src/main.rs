@@ -141,7 +141,7 @@ fn process_longreads(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 let seq = &buf.sequence(); 
                 let seq = seq.normalize(false);
                 let rc = seq.reverse_complement();
-                for (position, kmer, canonical) in seq.canonical_kmers(21, &rc) {
+                for (position, kmer, canonical) in seq.canonical_kmers(params.kmer_size, &rc) {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
                         //let counts = vars.entry(kmer_id.abs()).or_insert([0u8; 2]);
                         //if kmer_id < &0 { counts[1] += 1; } else { counts[0] += 1; }
@@ -218,7 +218,7 @@ fn process_hic(params: &Params, kmer_type: &HashMap<Vec<u8>, (i32, KMER_TYPE)>) 
             let r1_sequence = &buf1.sequence();
             let r1_sequence = r1_sequence.normalize(false);
             let r1_rc = r1_sequence.reverse_complement();
-            for (_, kmer, _) in r1_sequence.canonical_kmers(21, &r1_rc) {
+            for (_, kmer, _) in r1_sequence.canonical_kmers(params.kmer_size, &r1_rc) {
                 if let Some((kmer_id, kmer_type)) = kmer_type.get(kmer) {
                     if *kmer_type == KMER_TYPE::PAIRED_HET {
                         vars.push(*kmer_id);
@@ -228,7 +228,7 @@ fn process_hic(params: &Params, kmer_type: &HashMap<Vec<u8>, (i32, KMER_TYPE)>) 
             let r2_sequence = &buf2.sequence();
             let r2_sequence = r2_sequence.normalize(false);
             let r2_rc = r2_sequence.reverse_complement();
-            for (_, kmer, _) in r2_sequence.canonical_kmers(21, &r2_rc) {
+            for (_, kmer, _) in r2_sequence.canonical_kmers(params.kmer_size, &r2_rc) {
                 if let Some((kmer_id, kmer_type)) = kmer_type.get(kmer) {
                     if *kmer_type == KMER_TYPE::PAIRED_HET {
                         vars.push(*kmer_id);
@@ -293,7 +293,7 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 let r1_sequence = &buf1[(16+r1_trim)..].sequence();
                 let r1_sequence = r1_sequence.normalize(false);
                 let r1_rc = r1_sequence.reverse_complement();
-                for (_, kmer, _) in r1_sequence.canonical_kmers(21, &r1_rc) {
+                for (_, kmer, _) in r1_sequence.canonical_kmers(params.kmer_size, &r1_rc) {
                 //r1_sequence.canonical_kmers(21, &r1_rc).collect::<Vec<(usize, &[u8], bool)>>().into_par_iter().for_each(|(_, kmer, _)| {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
                         //eprintln!("txg kmer of type {:?}",kmer_type.get(kmer).unwrap());
@@ -308,7 +308,7 @@ fn process_txg(params: &Params, kmer_ids: &HashMap<Vec<u8>, i32>)  {
                 let r2_sequence = &buf2[*r2_trim..].sequence();
                 let r2_sequence = r2_sequence.normalize(false);
                 let r2_rc = r2_sequence.reverse_complement();
-                for (_, kmer, _) in r2_sequence.canonical_kmers(21, &r2_rc) {
+                for (_, kmer, _) in r2_sequence.canonical_kmers(params.kmer_size, &r2_rc) {
                 //r2_sequence.canonical_kmers(21, &r2_rc).collect::<Vec<(usize, &[u8], bool)>>().into_par_iter().for_each(|(_, kmer, _)| {
                     if let Some(kmer_id) = kmer_ids.get(kmer) {
                         //println!("{}\t{}", barcode_id, kmer_id);//std::str::from_utf8(&kmer).unwrap()); 
@@ -374,6 +374,7 @@ struct Params {
     hic_r1s: Vec<String>,
     hic_r2s: Vec<String>,
     output: String,
+    kmer_size: u8,
 }
 
 fn load_params() -> Params {
@@ -442,8 +443,13 @@ fn load_params() -> Params {
     let mut long_reads: Vec<String> = Vec::new();
     for x in long_reads_tmp { long_reads.push(x.to_string()); }
     let output = params.value_of("output").unwrap();
+
+    let kmer_size = params.value_of("kmer_size").unwrap();
+    let kmer_size: u8 = kmer_size.to_string().parse::<u8>().unwrap();
+
     Params{
         output: output.to_string(),
+        kmer_size: kmer_size,
         paired_kmers: paired_kmers,
         unpaired_kmers: unpaired_kmers,
         txg_r1s: txg_r1s,
