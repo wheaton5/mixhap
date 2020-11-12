@@ -399,7 +399,6 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 if let Some((contig, num, position)) = cheat.variants.get(&kmer.abs()) {
                     //eprintln!("STARTVAR ref chr{}\t{}", contig, position); any = true;
                     first = true;
-
                 } 
                 if let Some((contig, num, position)) = cheat.variants.get(&pair.abs()) {
                     //eprintln!("STARTVAR alt chr{}\t{}", contig, position); any = true;
@@ -429,7 +428,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     };
     //eprintln!("phase_block\tblock_position\tcontig\torder");
     let mut deferred_seed: Option<i32> = None;
+    let mut phase_block_number = 0;
+    let mut is_real_block = false; 
+    let mut crib_positions: Vec<usize> = Vec::new();
+    let mut crib_chrom: i32 = 0;
     loop {
+        
         let mut startvar;
         //if visited.contains(&startvar) { continue; }
         if let Some(seed) = deferred_seed { 
@@ -440,7 +444,15 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         else if let Some(seed) = seeds.next_seed() { 
             startvar = seed; 
             deferred_seed = Some(-seed); 
+            if is_real_block {
+                crib_positions.sort();
+                let start = crib_positions[0];
+                let end = crib_positions[crib_positions.len()-1];
+                eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
+            }
             eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
+            is_real_block = false;  // must add at least one kmer pair to block to be a real block
+            crib_positions.clear();
         }
         else { eprintln!("DONE"); break; }
         
@@ -456,10 +468,14 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 if let Some((contig, num, position)) = cheat.variants.get(&startvar.abs()) {
                     eprintln!("STARTVAR ref{} chr{}\t{}\t{}\t{}", num, contig, position, 
                     kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
+                    crib_chrom = *contig;
+                    crib_positions.push(*position);
                 } 
                 if let Some((contig, num, position)) = cheat.variants.get(&startpair.abs()) {
                     eprintln!("STARTVAR alt{} chr{}\t{}\t{}\t{}", num, contig, position, 
                     kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
+                    crib_chrom = *contig;
+                    crib_positions.push(*position);
                 } 
                 if !any {
                     eprintln!("STARTVAR  ref/alt not in crib");
@@ -543,18 +559,34 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 }
             }
             if add {
+                if !is_real_block {
+                    phase_block_number += 1;
+                    is_real_block = true;
+                }
                 match crib.as_ref() {
                     Some(cheat) => {
                         let mut any = false;
                         if let Some((contig, num, position)) = cheat.variants.get(&refvar.abs()) {
+                            if *contig == crib_chrom {
+                                crib_positions.push(*position);
+                            } else {
+                                eprintln!("ERROR!!!! wrong chrom?")
+                            }
                             eprintln!("ADD ref{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts,
                                 Status::get_status(refvar, variants, molecules, &phasing, &kmers),
                                 kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                                
                         } 
                         if let Some((contig, num, position)) = cheat.variants.get(&altvar.abs()) {
+                            if *contig == crib_chrom {
+                                crib_positions.push(*position);
+                            } else {
+                                eprintln!("ERROR!!!! wrong chrom?");
+                            }
                             eprintln!("ADD alt{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts, 
                                 Status::get_status(refvar, variants, molecules, &phasing, &kmers),
                                 kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
+                            
                         }   
                         if !any {
                             eprintln!("ADD alt/ref not in crib \t{:?}\t{:?}\t{}\t{}",  counts, 

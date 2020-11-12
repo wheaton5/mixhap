@@ -77,3 +77,4 @@ args:
         long: kmer_size
         required: true
         help: kmer_size
+        takes_value: true
