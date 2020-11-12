@@ -22,20 +22,21 @@ parser.add_argument("--ploidy", required=False, type=int, default=2, help="ploid
 parser.add_argument("-m", "--memory", required=False, type=int, default = 24, help="memory in GB, default 24")
 parser.add_argument("--unpaired_het_modimizer", required=False, default="23")
 parser.add_argument("--hom_modimizer",required=False, default="53")
+parser.add_argument("--kmer_size",required=True, type=int, help = "kmer length")
 args = parser.parse_args()
 
 mypath = os.path.dirname(os.path.realpath(__file__))
 cmd = [mypath+"/het_snp_kmers/target/release/het_snp_kmers", "--kmer_counts", args.output+"/kmer_counts.tsv"]
 cmd.extend(["--max_coverage", str(args.max_coverage), "--min_coverage", str(args.min_coverage), 
             "--max_error", str(args.max_error), "--max_total_coverage", str(args.max_total_coverage),
-            "--unpaired_het_modimizer", args.unpaired_het_modimizer, "--hom_modimizer", args.hom_modimizer])
+            "--unpaired_het_modimizer", args.unpaired_het_modimizer, "--hom_modimizer", args.hom_modimizer, "--kmer_size", str(args.kmer_size)])
 print(" ".join(cmd))
 with open(args.output+"/het_kmers.tsv", 'w') as out:
     subprocess.check_call(cmd,stdout=out)
 trim_r1s = ["--txg_trim_r1s"] + ["7" for x in args.txg_r1s]
 trim_r2s = ["--txg_trim_r2s"] + ["0" for x in args.txg_r2s]
 
-cmd = [mypath+"/molecule_kmers/target/release/molecule_kmers", "--output", args.output]
+cmd = [mypath+"/molecule_kmers/target/release/molecule_kmers", "--output", args.output, "--kmer_size", str(args.kmer_size)]
 cmd.extend(["--txg_barcodes", args.whitelist, "--txg_r1s"])
 cmd.extend(args.txg_r1s)
 cmd.extend(['--txg_r2s'])
