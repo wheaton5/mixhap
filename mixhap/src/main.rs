@@ -541,22 +541,22 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             let trans = (counts[2] + counts[3]) as f32;
             let total = cis + trans;
             let status = Status::get_status(refvar, variants, molecules, &phasing, &kmers);
-            let cis = (status.r_h1 + status.a_h2) as f32;
-            let trans = (status.r_h2 + status.a_h1) as f32;
-            
+            let mol_cis = (status.r_h1 + status.a_h2) as f32;
+            let mol_trans = (status.r_h2 + status.a_h1) as f32;
+            let mol_total = mol_cis + mol_trans;
             let mut add = false;
             let mut phase = true;
 
             if (bfs_iter < 4 && total >= 2.0) || total >= 3.0 {
-                if cis.max(trans) / total > 0.95 {
+                if mol_cis.max(mol_trans) / mol_total > 0.95 {
                     if cis > trans {
                         let minor = status.r_h1.min(status.a_h2) as f32;
-                        if minor/total > 0.15 {
+                        if minor/mol_total > 0.15 {
                             add = true;
                         }
                     } else {
                         let minor = status.r_h2.min(status.a_h1) as f32;
-                        if minor/total > 0.15 {
+                        if minor/mol_total > 0.15 {
                             add = true;
                             phase = false;
                             altvar = refvar;
