@@ -546,12 +546,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             if (bfs_iter < 4 && total >= 2.0) || total >= 3.0 {
                 if cis.max(trans) / total > 0.95 {
                     if cis > trans {
-                        let minor = counts[0].min(counts[1]) as f32;
+                        let minor = status.r_h1.min(status.a_h2) as f32;
                         if minor/total > 0.15 {
                             add = true;
                         }
                     } else {
-                        let minor = counts[2].min(counts[3]) as f32;
+                        let minor = status.r_h2.min(status.a_h1) as f32;
                         if minor/total > 0.15 {
                             add = true;
                             phase = false;
