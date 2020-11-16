@@ -446,9 +446,13 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             deferred_seed = Some(-seed); 
             if is_real_block {
                 crib_positions.sort();
-                let start = crib_positions[0];
-                let end = crib_positions[crib_positions.len()-1];
-                eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
+                if crib_positions.len() > 0 {
+                    let start = crib_positions[0];
+                    let end = crib_positions[crib_positions.len()-1];
+                    eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
+                } else {
+                    eprintln!("PHASEBLOCK Complete. chr?\t0-0\t0\t0");
+                }
             }
             eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
             is_real_block = false;  // must add at least one kmer pair to block to be a real block
