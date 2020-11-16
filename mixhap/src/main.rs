@@ -533,14 +533,17 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             let mut refvar = bfs_queue.pop_front().unwrap(); 
             let mut altvar = pair(refvar);
             let counts = forward_edges.get(&refvar).unwrap();
-            
             let cis = (counts[0] + counts[1]) as f32;
             let trans = (counts[2] + counts[3]) as f32;
             let total = cis + trans;
+            let status = Status::get_status(refvar, variants, molecules, &phasing, &kmers);
+            let cis = (status.r_h1 + status.a_h2) as f32;
+            let trans = (status.r_h2 + status.a_h1) as f32;
+            
             let mut add = false;
             let mut phase = true;
 
-            if (bfs_iter < 4 && total >= 2.0) || total >= 6.0 {
+            if (bfs_iter < 4 && total >= 2.0) || total >= 3.0 {
                 if cis.max(trans) / total > 0.95 {
                     if cis > trans {
                         let minor = counts[0].min(counts[1]) as f32;
