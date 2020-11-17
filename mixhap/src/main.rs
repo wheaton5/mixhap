@@ -680,8 +680,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 
             }
             else {
-                let hom1 = (status.r_h1 + status.r_h2) as f32;
-                let hom2 = (status.a_h1 + status.a_h2) as f32;
+                let hom1 = (counts[0] + counts[3]) as f32;
+                let hom2 = (counts[1] + counts[2]) as f32;
                 let total = hom1+hom2;
                 if total > 4.0 {
                     seeds.visited.insert(altvar); seeds.visited.insert(-altvar); seeds.visited.insert(refvar); seeds.visited.insert(-refvar);
