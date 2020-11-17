@@ -479,10 +479,14 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     crib_positions.push(*position);
                 } 
                 if let Some((contig, num, position)) = cheat.variants.get(&startpair.abs()) {
+                    
                     eprintln!("STARTVAR alt{} chr{}\t{}\t{}\t{}", num, contig, position, 
-                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
-                    crib_chrom = *contig;
-                    crib_positions.push(*position);
+                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap());
+                    if !any { // if we see both ref and alt, dont add to crib positions
+                        crib_chrom = *contig;
+                        crib_positions.push(*position);
+                    }
+                    any = true;
                 } 
                 if !any {
                     eprintln!("STARTVAR  ref/alt not in crib");
