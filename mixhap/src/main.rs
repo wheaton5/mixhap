@@ -680,14 +680,16 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 
             }
             else {
-                let hom1 = (counts[0] + counts[3]) as f32;
-                let hom2 = (counts[1] + counts[2]) as f32;
+                let hom1 = (status.r_h1 + status.r_h2) as f32;
+                let hom2 = (status.a_h1 + status.a_h2) as f32;
                 let total = hom1+hom2;
+                if total > 4.0 {
+                    seeds.visited.insert(altvar); seeds.visited.insert(-altvar); seeds.visited.insert(refvar); seeds.visited.insert(-refvar);
+                }
                 if hom1.max(hom2) / total > 0.95 {
-                    
                     if hom1 > hom2 {
-                        let minor = counts[0].min(counts[3]) as f32;
-                        let major = counts[0].max(counts[3]) as f32;
+                        let minor = status.r_h1.min(status.r_h2) as f32;
+                        let major = status.r_h1.max(status.r_h2) as f32;
                         //if minor/total > 0.1 {
                         //    eprintln!("homozygous 1\t{:?}\n{:?}", counts, 
                         //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
@@ -699,8 +701,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                         //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
                         //}
                     } else {
-                        let minor = counts[1].min(counts[2]) as f32;
-                        let major = counts[1].max(counts[2]) as f32;
+                        let minor = status.a_h1.min(status.a_h2) as f32;
+                        let major = status.a_h1.max(status.a_h2) as f32;
                         //if minor/total > 0.1 {
                         //    eprintln!("homozygous 2\t{:?}\n{:?}", counts, 
                         //        KmerPairStatus::get_status(refvar, variants, molecules, &phasing, &kmers));
