@@ -430,7 +430,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     let mut deferred_seed: Option<i32> = None;
     let mut phase_block_number = 0;
     let mut is_real_block = false; 
-    let mut crib_positions: Vec<usize> = Vec::new();
+    let mut crib_positions: HashMap<i32, Vec<usize>> = HashMap::new();
     let mut crib_chrom: i32 = 0;
     loop {
         
@@ -449,14 +449,36 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             startvar = seed; 
             deferred_seed = Some(-seed); 
             if is_real_block {
-                crib_positions.sort();
-                if crib_positions.len() > 0 {
-                    let start = crib_positions[0];
-                    let end = crib_positions[crib_positions.len()-1];
-                    eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
-                } else {
-                    eprintln!("PHASEBLOCK Complete. chr?\t0-0\t0\t0");
+                let mut blocks: Vec<(i32, usize, usize)> = Vec::new();
+                for (chrom, positions) in crib_positions.iter() {
+                    let mut sub_positions: Vec<usize> = Vec::new();
+                    let mut last = 0;
+                    if positions.len() == 0 {
+                        blocks.push((-1,0,0));
+                        continue;
+                    }
+                    
+                    for pos in positions {
+                        sub_positions.push(*pos);
+                    }
+                    sub_positions.sort();
+                    let mut start = sub_positions[0];
+                    for (index, pos) in sub_positions.iter().enumerate() {
+                        if last != 0 && *pos - last > 100000 {
+                            blocks.push((*chrom, start, last));
+                            start = *pos;
+                        }
+                        last = *pos;
+                    }
+                    blocks.push((*chrom, start, last));
                 }
+                if blocks.len() > 1 {
+                    eprintln!("MULTIPOSITION phaseblock\t{:?}", blocks);
+                }
+                for (chrom, start, end) in blocks {
+                    eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
+                }
+                
             }
             eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
             is_real_block = false;  // must add at least one kmer pair to block to be a real block
@@ -477,17 +499,16 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     eprintln!("STARTVAR ref{} chr{}\t{}\t{}\t{}", num, contig, position, 
                     kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
                     crib_chrom = *contig;
-                    crib_positions.push(*position);
+                    let poses = crib_positions.entry(*contig).or_insert(Vec::new());
+                    poses.push(*position);
                 } 
                 if let Some((contig, num, position)) = cheat.variants.get(&startpair.abs()) {
                     
                     eprintln!("STARTVAR alt{} chr{}\t{}\t{}\t{}", num, contig, position, 
-                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap());
-                    if !any { // if we see both ref and alt, dont add to crib positions
-                        crib_chrom = *contig;
-                        crib_positions.push(*position);
-                    }
-                    any = true;
+                    kmers.kmer_counts.get(&startvar.abs()).unwrap(), kmers.kmer_counts.get(&startpair.abs()).unwrap()); any = true;
+                    let poses = crib_positions.entry(*contig).or_insert(Vec::new());
+                    poses.push(*position);
+                   
                 } 
                 if !any {
                     eprintln!("STARTVAR  ref/alt not in crib");
@@ -584,22 +605,18 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     Some(cheat) => {
                         let mut any = false;
                         if let Some((contig, num, position)) = cheat.variants.get(&refvar.abs()) {
-                            if *contig == crib_chrom {
-                                crib_positions.push(*position);
-                            } else {
-                                eprintln!("ERROR!!!! wrong chrom?")
-                            }
+                            let poses = crib_positions.entry(*contig).or_insert(Vec::new());
+                            poses.push(*position);
+                            
                             eprintln!("ADD ref{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts,
                                 Status::get_status(refvar, variants, molecules, &phasing, &kmers),
                                 kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
                                 
                         } 
                         if let Some((contig, num, position)) = cheat.variants.get(&altvar.abs()) {
-                            if *contig == crib_chrom {
-                                crib_positions.push(*position);
-                            } else {
-                                eprintln!("ERROR!!!! wrong chrom?");
-                            }
+                            let poses = crib_positions.entry(*contig).or_insert(Vec::new());
+                            poses.push(*position);
+                            
                             eprintln!("ADD alt{} chr{}\t{}\t{:?}\t{:?}\t{}\t{}", num, contig, position, counts, 
                                 Status::get_status(refvar, variants, molecules, &phasing, &kmers),
                                 kmers.kmer_counts.get(&refvar.abs()).unwrap(), kmers.kmer_counts.get(&altvar.abs()).unwrap()); any = true;
