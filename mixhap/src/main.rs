@@ -438,6 +438,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         //if visited.contains(&startvar) { continue; }
         if let Some(seed) = deferred_seed { 
             if !is_real_block {
+                deferred_seed = None;
                 continue; // if we didnt go forward dont attempt to go backwards
             }
             startvar = seed ; 
