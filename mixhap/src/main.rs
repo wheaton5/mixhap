@@ -476,7 +476,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     eprintln!("MULTIPOSITION phaseblock\t{:?}", blocks);
                 }
                 for (chrom, start, end) in blocks {
-                    eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", crib_chrom, start, end, end-start);
+                    eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", chrom, start, end, end-start);
                 }
                 
             }
