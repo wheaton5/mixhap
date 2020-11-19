@@ -439,6 +439,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         if let Some(seed) = deferred_seed { 
             if !is_real_block {
                 deferred_seed = None;
+                crib_positions = HashMap::new();
                 continue; // if we didnt go forward dont attempt to go backwards
             }
             startvar = seed ; 
@@ -482,7 +483,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             }
             eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
             is_real_block = false;  // must add at least one kmer pair to block to be a real block
-            crib_positions.clear();
+            crib_positions = HashMap::new();
         }
         else { eprintln!("DONE"); break; }
         
@@ -701,7 +702,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 let hom1 = (counts[0] + counts[3]) as f32;
                 let hom2 = (counts[1] + counts[2]) as f32;
                 let total = hom1+hom2;
-                if total > 4.0 {
+                if total > 4.0 && is_real_block {
                     seeds.visited.insert(altvar); seeds.visited.insert(-altvar); seeds.visited.insert(refvar); seeds.visited.insert(-refvar);
                 }
                 if hom1.max(hom2) / total > 0.95 {
