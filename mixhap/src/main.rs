@@ -426,7 +426,6 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         seeds: all_vars,
         current_index: 0,
     };
-    //eprintln!("phase_block\tblock_position\tcontig\torder");
     let mut deferred_seed: Option<i32> = None;
     let mut phase_block_number = 0;
     let mut is_real_block = false; 
