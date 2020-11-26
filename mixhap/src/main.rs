@@ -815,9 +815,11 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             eprintln!("linked read mol {} vars {}", mol, vars.len());
             if vars.len() < 2 { continue; }
             for vardex1 in 0..vars.len() {
+                eprintln!("hereherehere {}",vardex1);
                 let var1 = vars[vardex1];
                 if let Some(phase_block_end1) = kmer_end_phasings.get(&var1) {
                     for vardex2 in (vardex1+1)..vars.len() {
+                        
                         let var2 = vars[vardex2];
                         if let Some(phase_block_end2) = kmer_end_phasings.get(&var2) {
                             if phase_block_end1.abs() != phase_block_end2.abs() {
@@ -825,6 +827,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                                 let max = phase_block_end1.max(phase_block_end2);
                                 let count = counts.entry((*min, *max)).or_insert([0;3]);
                                 if let Some(phase1) = phasing.get(&var1) {
+                                    eprintln!("gooodgood");
                                     if let Some(phase2) = phasing.get(&var2) {
                                         if *phase1 == *phase2 && *phase1 {
                                             count[0] += 1;
@@ -843,6 +846,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     }
                 }
             }
+            eprintln!("counts counts counts size {}", counts.len());
             for ((phaseend1, phaseend2), count) in counts.iter() {
                  eprintln!("phaseblocks {} and {} with counts {:?}", phaseend1, phaseend2, counts);
                 let consistent = count[0].max(count[1]) as f32;
