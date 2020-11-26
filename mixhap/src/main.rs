@@ -3895,6 +3895,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
             if *var < 0 { var_bcs.insert(-mol); } else { var_bcs.insert(*mol); }
         }
     }
+    /* WHAT DOES THIS EVEN DO
     for (var, mols) in linked_read_variants.iter() {
         if mols.len() < 30 {
             for mol in mols.iter() {
@@ -3904,6 +3905,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
             }
         }
     }
+    */
     eprintln!("{} good molecules", linked_read_molecules.len());
     /*
     for (mol, varset) in het_linked_read_molecules.iter() {
@@ -4120,8 +4122,11 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
                 txg_vars[(var.abs() - 1) as usize].push(-mol_id);
             } else { txg_vars[(var - 1) as usize].push(mol_id) }
         }
+
+        eprintln!("txg_mols mol {} kmer_ids_sorted {}", mol_id, kmer_ids_sorted.len());
         txg_mols.insert(mol_id, kmer_ids_sorted);
     }
+    eprintln!("txg_mols {}",txg_mols.len());
 
     for (mol_id, kmer_ids) in hic_molecules {
         let mut kmer_ids_sorted = kmer_ids.iter().cloned().collect::<Vec<i32>>();
