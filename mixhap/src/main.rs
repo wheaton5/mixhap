@@ -783,7 +783,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
 
     if params.txg_mols.len() > 0 {
-        let mut scaffolding_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+        let mut scaffolding_phasing: HashMap<(i32, i32), [u32; 3]> = HashMap::new();
         //first we need to build Hashmap from kmer to phasing ends 
         let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
         for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
@@ -804,7 +804,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
 
         for mol in molecules.get_linked_read_molecules() {
-            let mut counts: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+            let mut counts: HashMap<(i32, i32), [u32; 3]> = HashMap::new();
             let mut vars: Vec<i32> = Vec::new();
             for var in molecules.get_linked_read_variants(*mol) {
                 vars.push(*var);
@@ -819,33 +819,61 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                             if phase_block_end1.abs() != phase_block_end2.abs() {
                                 let min = phase_block_end1.min(phase_block_end2);
                                 let max = phase_block_end1.max(phase_block_end2);
-                                let count = counts.entry((*min, *max)).or_insert([0;2]);
+                                let count = counts.entry((*min, *max)).or_insert([0;3]);
                                 
                                 let phase1opt = phasing.get(&var1);
                                 let phase2opt = phasing.get(&var2);
                                 match phase1opt {
                                     Some(phase1) => match phase2opt {
                                         Some(phase2) => {
-                                            if phase1 == phase2 {
+                                            if *phase1 == *phase2 && *phase1 {
                                                 count[0] += 1;
-                                            } else {
+                                            } else if *phase1 == *phase2 && !*phase1 {
                                                 count[1] += 1;
+                                            } else {
+                                                count[2] += 1;
                                             }
                                         },
                                         None => {}
                                     },
                                     None => {}
                                 }  
-                                
-                                
                             }
                         }
                     }
                 }
             }
+            for ((phaseend1, phaseend2), count) in counts.iter() {
+                let consistent = count[0].max(count[1]) as f32;
+                let total = count[0] as f32 + count[1] as f32 + count[2] as f32;
+                if consistent > 5.0 && consistent / total > 0.9 {
+                    eprintln!("phaseblocks {} and {} with counts {:?}", phaseend1, phaseend2, counts);
+                    let consistency = scaffolding_phasing.entry((*phaseend1, *phaseend2)).or_insert([0;3]);
+                    if count[0] > count[1] {
+                        consistency[0] += 1;
+                    } else {
+                        consistency[1] += 1;
+                    }
+                } else if consistent > 5.0 {
+                    let consistency = scaffolding_phasing.entry((*phaseend1, *phaseend2)).or_insert([0;3]);
+                    consistency[2] += 1;
+                    eprintln!("bad phaseblocks {} and {} with counts {:?}", phaseend1, phaseend2, counts);
+                }
 
+            }
+            for ((pbe1, pbe2), counts) in scaffolding_phasing.iter() {
+                let p1 = counts[0] as f32;
+                let p2 = counts[1] as f32;
+                let total = p1 + p2 + counts[2] as f32;
+                if p1/total > 0.9 {
+                    eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                } else if p2/total > 0.9 {
+                    eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                }   else {
+                    eprintln!("failure to scaffold from {} -- {} with {:?}", pbe1, pbe2, counts);
+                }
+            }
         }
-
     }
 
 
