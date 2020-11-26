@@ -64,6 +64,13 @@ fn main() {
     let (variants, molecules) = load_molecule_kmers(&params, &kmers);
 
 
+    eprintln!("let me check something");
+    for mol in molecules.get_linked_read_molecules() {
+        eprintln!("mol {}", mol);
+        for var in molecules.get_linked_read_variants(*mol) {
+            eprintln!("\tvar {}", var);
+        }
+    }
     /* 
     let data = "%\n%\n";
     let f1 = File::create("/Users/hh5/Documents/datasets/ribosomal_clusters/ref.mtx").expect("Unable to create file");
