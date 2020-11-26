@@ -783,7 +783,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
 
     if params.txg_mols.len() > 0 {
-        eprintln!("10x scaffolding");
+        eprintln!("10x scaffolding, phase blocks {}", phase_blocks.len());
         let mut scaffolding_phasing: HashMap<(i32, i32), [u32; 3]> = HashMap::new();
         //first we need to build Hashmap from kmer to phasing ends 
         let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
@@ -805,6 +805,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
 
         for mol in molecules.get_linked_read_molecules() {
+            eprintln!("linked read mol {}", mol);
             let mut counts: HashMap<(i32, i32), [u32; 3]> = HashMap::new();
             let mut vars: Vec<i32> = Vec::new();
             for var in molecules.get_linked_read_variants(*mol) {
