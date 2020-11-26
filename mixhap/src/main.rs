@@ -875,6 +875,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 }
             }
         }
+    } else {
+        eprintln!("no 10x linked read scaffolding");
     }
 
 
