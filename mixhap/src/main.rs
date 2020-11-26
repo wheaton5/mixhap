@@ -788,8 +788,10 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         //first we need to build Hashmap from kmer to phasing ends 
         let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
         for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
+            eprintln!("phase block {} kmers {}", phase_block_id, kmer_ordering.len());
             for (index, (hap1mer, hap2mer)) in kmer_ordering.iter().enumerate() {
                 if index < 200 {
+                    eprintln!("adding yeah");
                     kmer_end_phasings.insert(*hap1mer, *phase_block_id as i32);
                     kmer_end_phasings.insert(-hap1mer, *phase_block_id as i32);
                     kmer_end_phasings.insert(*hap2mer, *phase_block_id as i32);
