@@ -216,7 +216,7 @@ fn main() {
    
     let (components, adjacency_list) = sparsembly(&molecules, &variants, &kmers, &crib);
 
-    sparsembly2point0(&variants, &molecules, adjacency_list, crib, &kmers);
+    sparsembly2point0(&variants, &molecules, adjacency_list, crib, &kmers, &params);
 
 
 
@@ -375,7 +375,7 @@ impl Seeder {
 }
 
 fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list: HashMap<i32, HashMap<i32, (u16, u16)>>, 
-        crib: Option<Crib>, kmers: &Kmers) {
+        crib: Option<Crib>, kmers: &Kmers, params: &Params) {
     let mut reverse_edges: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut all_vars: Vec<i32> = Vec::new();
     for (var, varset) in adjacency_list.iter() {
@@ -428,14 +428,21 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     };
     let mut deferred_seed: Option<i32> = None;
     let mut phase_block_number = 0;
+    
+
     let mut is_real_block = false; 
     let mut crib_positions: HashMap<i32, Vec<usize>> = HashMap::new();
     let mut crib_chrom: i32 = 0;
+    let mut direction = true;
+    let mut phase_blocks: HashMap<usize, VecDeque<(i32, i32)>> = HashMap::new();
+    let mut phasing: HashMap<i32, bool> = HashMap::new(); 
+    let mut kmer_order: VecDeque<(i32, i32)> = VecDeque::new();
     loop {
         
         let mut startvar;
         //if visited.contains(&startvar) { continue; }
         if let Some(seed) = deferred_seed { 
+            direction = false;
             if !is_real_block {
                 deferred_seed = None;
                 crib_positions = HashMap::new();
@@ -446,9 +453,21 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             eprintln!("\nDeferred seed var {}", startvar);
         }
         else if let Some(seed) = seeds.next_seed() { 
+            direction = true;
             startvar = seed; 
             deferred_seed = Some(-seed); 
+            if startvar % 2 != 0 {
+                startvar = pair(startvar); // ref
+            }
+            let startpair = pair(startvar); // alt
+            
+
             if is_real_block {
+                let mut order: VecDeque<(i32, i32)> = VecDeque::new();
+                for (kmer1, kmer2) in kmer_order.iter() {
+                    order.push_back((*kmer1, *kmer2));
+                }
+                phase_blocks.insert(phase_block_number, order);
                 let mut blocks: Vec<(i32, usize, usize)> = Vec::new();
                 for (chrom, positions) in crib_positions.iter() {
                     let mut sub_positions: Vec<usize> = Vec::new();
@@ -478,6 +497,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 for (chrom, start, end) in blocks {
                     eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", chrom, start, end, end-start);
                 }
+                kmer_order.clear();
+                kmer_order.push_back((startvar, startpair));
                 
             }
             eprintln!("\n\n\n\nNew phaseblock starting with var {}", startvar);
@@ -486,9 +507,6 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
         else { eprintln!("DONE"); break; }
         
-        if startvar % 2 != 0 {
-            startvar = pair(startvar); // ref
-        }
         let startpair = pair(startvar); // alt
         
 
@@ -522,7 +540,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         //visited.insert(startvar); visited.insert(-startvar); visited.insert(startpair); visited.insert(-startpair);
 
         let mut forward_edges: HashMap<i32, [u8; 4]> = HashMap::new();
-        let mut phasing: HashMap<i32, bool> = HashMap::new(); 
+        
         phasing.insert(startvar.abs(), true);
         phasing.insert(startpair.abs(), false);
         let mut bfs_queue: VecDeque<i32> = VecDeque::new();
@@ -601,6 +619,20 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     phase_block_number += 1;
                     is_real_block = true;
                 }
+                if direction {
+                    if phase {
+                        kmer_order.push_back((refvar, altvar));
+                    } else {
+                         kmer_order.push_back((altvar, refvar));
+                    }
+                } else {
+                    if phase {
+                        kmer_order.push_front((refvar, altvar));
+                    } else {
+                        kmer_order.push_front((altvar, refvar));
+                    }
+                }
+
                 match crib.as_ref() {
                     Some(cheat) => {
                         let mut any = false;
@@ -740,11 +772,94 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         //    phase_block += 1;
         //}
         // ok lets see what we can do on linearizing
-        linearize(variants, molecules, phasing, kmers);
+        //linearize(variants, molecules, phasing, kmers);
         
         //eprintln!("phase block contains {} variants",phasing.len()/2); 
 
     }
+
+
+    // NOW WE are going to scaffold using linked reads and hic
+
+
+    if params.txg_mols.len() > 0 {
+        let mut scaffolding_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+        //first we need to build Hashmap from kmer to phasing ends 
+        let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
+        for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
+            for (index, (hap1mer, hap2mer)) in kmer_ordering.iter().enumerate() {
+                if index < 200 {
+                    kmer_end_phasings.insert(*hap1mer, *phase_block_id as i32);
+                    kmer_end_phasings.insert(-hap1mer, *phase_block_id as i32);
+                    kmer_end_phasings.insert(*hap2mer, *phase_block_id as i32);
+                    kmer_end_phasings.insert(-hap2mer, *phase_block_id as i32);
+                }
+                if kmer_ordering.len() - index < 201 {
+                    kmer_end_phasings.insert(*hap1mer, -(*phase_block_id as i32));
+                    kmer_end_phasings.insert(-hap1mer, -(*phase_block_id as i32));
+                    kmer_end_phasings.insert(*hap2mer, -(*phase_block_id as i32));
+                    kmer_end_phasings.insert(-hap2mer, -(*phase_block_id as i32));
+                }
+            }
+        }
+
+        for mol in molecules.get_linked_read_molecules() {
+            let mut counts: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+            let mut vars: Vec<i32> = Vec::new();
+            for var in molecules.get_linked_read_variants(*mol) {
+                vars.push(*var);
+            }
+            if vars.len() < 2 { continue; }
+            for vardex1 in 0..vars.len() {
+                let var1 = vars[vardex1];
+                if let Some(phase_block_end1) = kmer_end_phasings.get(&var1) {
+                    for vardex2 in (vardex1+1)..vars.len() {
+                        let var2 = vars[vardex2];
+                        if let Some(phase_block_end2) = kmer_end_phasings.get(&var2) {
+                            if phase_block_end1.abs() != phase_block_end2.abs() {
+                                let min = phase_block_end1.min(phase_block_end2);
+                                let max = phase_block_end1.max(phase_block_end2);
+                                let count = counts.entry((*min, *max)).or_insert([0;2]);
+                                
+                                let phase1opt = phasing.get(&var1);
+                                let phase2opt = phasing.get(&var2);
+                                match phase1opt {
+                                    Some(phase1) => match phase2opt {
+                                        Some(phase2) => {
+                                            if phase1 == phase2 {
+                                                count[0] += 1;
+                                            } else {
+                                                count[1] += 1;
+                                            }
+                                        },
+                                        None => {}
+                                    },
+                                    None => {}
+                                }  
+                                
+                                
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+
+    }
+
+
+
+    // HIC scaffolding
+
+
+
+
+
+
+
+
+
     let mut single_jump: HashMap<(i32, i32), [u8; 4]> = HashMap::new();
     for mol in molecules.get_long_read_molecules() {
         let mut varlist: Vec<i32> = Vec::new();
