@@ -807,12 +807,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
 
         for mol in molecules.get_linked_read_molecules() {
-            eprintln!("linked read mol {}", mol);
             let mut counts: HashMap<(i32, i32), [u32; 3]> = HashMap::new();
             let mut vars: Vec<i32> = Vec::new();
             for var in molecules.get_linked_read_variants(*mol) {
                 vars.push(*var);
             }
+            eprintln!("linked read mol {} vars {}", mol, vars.len());
             if vars.len() < 2 { continue; }
             for vardex1 in 0..vars.len() {
                 let var1 = vars[vardex1];
@@ -824,30 +824,27 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                                 let min = phase_block_end1.min(phase_block_end2);
                                 let max = phase_block_end1.max(phase_block_end2);
                                 let count = counts.entry((*min, *max)).or_insert([0;3]);
+                                if let Some(phase1) = phasing.get(&var1) {
+                                    if let Some(phase2) = phasing.get(&var2) {
+                                        if *phase1 == *phase2 && *phase1 {
+                                            count[0] += 1;
+                                        } else if *phase1 == *phase2 && !*phase1 {
+                                            count[1] += 1;
+                                        } else {
+                                            count[2] += 1;
+                                        }
+
+                                    }
+                                }
                                 
-                                let phase1opt = phasing.get(&var1);
-                                let phase2opt = phasing.get(&var2);
-                                match phase1opt {
-                                    Some(phase1) => match phase2opt {
-                                        Some(phase2) => {
-                                            if *phase1 == *phase2 && *phase1 {
-                                                count[0] += 1;
-                                            } else if *phase1 == *phase2 && !*phase1 {
-                                                count[1] += 1;
-                                            } else {
-                                                count[2] += 1;
-                                            }
-                                        },
-                                        None => {}
-                                    },
-                                    None => {}
-                                }  
+                                
                             }
                         }
                     }
                 }
             }
             for ((phaseend1, phaseend2), count) in counts.iter() {
+                 eprintln!("phaseblocks {} and {} with counts {:?}", phaseend1, phaseend2, counts);
                 let consistent = count[0].max(count[1]) as f32;
                 let total = count[0] as f32 + count[1] as f32 + count[2] as f32;
                 if consistent > 5.0 && consistent / total > 0.9 {
