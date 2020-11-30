@@ -844,9 +844,9 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             if total < 5.0 { continue; }
             if p1/total > 0.9 {
                 links += 1;
-                eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                eprintln!("linkedread scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
             } else if p2/total > 0.9 {
-                eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                eprintln!("linkedread scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
                 links += 1;
             }//   else {
             //    eprintln!("failure to scaffold from {} -- {} with {:?}", pbe1, pbe2, counts);
@@ -906,6 +906,23 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             }
         }   
     }
+    let mut links = 0;
+    for ((pb1, pb2), counts) in hic_scaffold_phasing.iter() {
+        if pb1 == pb2 { continue; }
+        let p1 = counts[0] as f32;
+        let p2 = counts[1] as f32;
+        let total = p1 + p2;
+        eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
+        if total < 100.0 { continue; }
+        if p1/total > 0.7 {
+            links += 1;
+            eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
+        } else if p2/total > 0.9 {
+            eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
+            links += 1;
+        }
+    }
+    eprintln!("hic scaffolding made {} links", links);
 
 
 
