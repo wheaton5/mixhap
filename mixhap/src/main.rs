@@ -437,7 +437,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     let mut phase_blocks: HashMap<usize, VecDeque<(i32, i32)>> = HashMap::new();
     let mut phasing: HashMap<i32, bool> = HashMap::new(); 
     let mut kmer_order: VecDeque<(i32, i32)> = VecDeque::new();
-    let mut phase_block_chrom: HashMap<i32, Vec<i32>> = HashMap::new();
+    let mut phase_block_chrom: HashMap<i32, i32> = HashMap::new();
+    let mut phase_block_length: HashMap<i32, usize> = HashMap::new();
     loop {
         
         let mut startvar;
@@ -496,14 +497,17 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     eprintln!("MULTIPOSITION phaseblock\t{:?}", blocks);
                     
                 }
-                let mut chroms: Vec<i32> = Vec::new();
+                let mut biggest = 0;
+                let mut biggest_size = 0;
                 for (chrom, start, end) in blocks {
                     eprintln!("PHASEBLOCK Complete. chr{}\t{}-{}\tlength\t{}", chrom, start, end, end-start);
-                    if end-start > 0 {
-                        chroms.push(chrom);
+                    if end-start > biggest_size {
+                        biggest = chrom;
+                        biggest_size = end-start;
                     }
                 }
-                phase_block_chrom.insert(phase_block_number as i32, chroms);
+                phase_block_chrom.insert(phase_block_number as i32, biggest);
+                phase_block_length.insert(phase_block_number as i32, biggest_size);
                 kmer_order.clear();
                 kmer_order.push_back((startvar, startpair));
                 
@@ -848,30 +852,34 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             let p1 = counts[0] as f32;
             let p2 = counts[1] as f32;
             let total = p1 + p2;
-            if total < 5.0 { continue; }
-            let mut link = true;
-            if p1/total > 0.9 {
+            if total < 10.0 { continue; }
+            let mut link = false;
+            if p1/total > 0.95 {
                 links += 1;
-                eprintln!("linkedread scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
                 link = true;
             } else if p2/total > 0.9 {
-                eprintln!("linkedread scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
+                eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
                 links += 1;
                 link = true;
             }
             if link {
-                if let Some(chroms1) = phase_block_chrom.get(&pbe1.abs()) {
-                    if let Some(chroms2) = phase_block_chrom.get(&pbe2.abs()) {
-                        if chroms1.len() == 1 && chroms2.len() == 1 {
-                            if chroms1[0] == chroms2[0] {
-                                eprintln!("Good match, crib chrom {} == {}",chroms1[0], chroms2[0]);
-                            } else {
-                                eprintln!("Bad match, crib chrom {} == {}",chroms1[0], chroms2[0]);
+                if let Some(chrom1) = phase_block_chrom.get(&pbe1.abs()) {
+                    if let Some(chrom2) = phase_block_chrom.get(&pbe2.abs()) {
+
+                            if let Some(length1) = phase_block_length.get(&pbe1.abs()) {
+                                if let Some(length2) = phase_block_length.get(&pbe2.abs()) {
+                                    if chrom1 == chrom2 {
+                                        eprintln!("GOOD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
+                                    }
+                                    else {
+                                        eprintln!("BAD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
+
+                                    }
+                                }
                             }
-                        } else {
-                            eprintln!("complex situation, crib chroms {:?} and {:?}", chroms1, chroms2);
-                        }
-                    }
+                        } 
+                    
                 }
             }
         }
