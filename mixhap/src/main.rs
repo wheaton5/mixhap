@@ -64,13 +64,6 @@ fn main() {
     let (variants, molecules) = load_molecule_kmers(&params, &kmers);
 
 
-    eprintln!("let me check something");
-    for mol in molecules.get_linked_read_molecules() {
-        eprintln!("mol {}", mol);
-        for var in molecules.get_linked_read_variants(*mol) {
-            eprintln!("\tvar {}", var);
-        }
-    }
     /* 
     let data = "%\n%\n";
     let f1 = File::create("/Users/hh5/Documents/datasets/ribosomal_clusters/ref.mtx").expect("Unable to create file");
@@ -4123,10 +4116,8 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
             } else { txg_vars[(var - 1) as usize].push(mol_id) }
         }
 
-        eprintln!("txg_mols mol {} kmer_ids_sorted {}", mol_id, kmer_ids_sorted.len());
         txg_mols.insert(mol_id, kmer_ids_sorted);
     }
-    eprintln!("txg_mols {}",txg_mols.len());
 
     for (mol_id, kmer_ids) in hic_molecules {
         let mut kmer_ids_sorted = kmer_ids.iter().cloned().collect::<Vec<i32>>();
