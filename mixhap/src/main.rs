@@ -778,19 +778,16 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
     }
 
-    eprintln!("scaffolding");
+    eprintln!("linked read scaffolding");
     // NOW WE are going to scaffold using linked reads and hic
 
 
     if params.txg_mols.len() > 0 {
-        eprintln!("10x scaffolding, phase blocks {}", phase_blocks.len());
         //first we need to build Hashmap from kmer to phasing ends 
         let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
         for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
-            eprintln!("phase block {} kmers {}", phase_block_id, kmer_ordering.len());
             for (index, (hap1mer, hap2mer)) in kmer_ordering.iter().enumerate() {
                 if index < 200 {
-                    eprintln!("adding yeah");
                     kmer_end_phasings.insert(*hap1mer, *phase_block_id as i32);
                     kmer_end_phasings.insert(-hap1mer, *phase_block_id as i32);
                     kmer_end_phasings.insert(*hap2mer, *phase_block_id as i32);
@@ -840,6 +837,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
         let mut links = 0;
         for ((pbe1, pbe2), counts) in scaffold_phasing.iter() {
+            if pbe1 == pbe2 { continue; }
             let p1 = counts[0] as f32;
             let p2 = counts[1] as f32;
             let total = p1 + p2;
@@ -866,7 +864,48 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
     // HIC scaffolding
 
-
+    let mut kmer_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
+    for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
+        for (hap1mer, hap2mer) in kmer_ordering.iter() {
+            kmer_phasings.insert(*hap1mer, *phase_block_id as i32);
+            kmer_phasings.insert(-hap1mer, *phase_block_id as i32);
+            kmer_phasings.insert(*hap2mer, *phase_block_id as i32);
+            kmer_phasings.insert(-hap2mer, *phase_block_id as i32);
+        }
+    }
+    let mut hic_scaffold_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+    for mol in molecules.get_hic_molecules() {
+        let mut phaseblock_counts: HashMap<i32, [u32; 2]> = HashMap::new();
+            
+        for var in molecules.get_hic_variants(*mol) {
+            if let Some(phaseblock_id) = kmer_phasings.get(var) {
+                let phase = phasing.get(var).unwrap();
+                let count = phaseblock_counts.entry(*phaseblock_id).or_insert([0;2]);
+                if *phase { count[0] += 1; } else { count[1] += 1; }
+            }
+        }
+        let mut countsvec: Vec<(i32, bool)> = Vec::new();
+        for (phaseblock, counts) in phaseblock_counts.iter() {
+            let max = counts[0].max(counts[1]) as f32;
+            let total = (counts[0] + counts[1]) as f32;
+            let phase = counts[0] > counts[1];
+            if max > 0.0 && max/total > 0.95 {
+                countsvec.push((*phaseblock, phase));
+            }
+        }
+        for i in 0..countsvec.len() {
+            let (pb1, phase1) = countsvec[i];
+            for j in (i+1)..countsvec.len() {
+                let (pbend2, phase2) = countsvec[j];
+                let min = pb1.min(pbend2);
+                let max = pb1.max(pbend2);
+                let counts = hic_scaffold_phasing.entry((min, max)).or_insert([0;2]);
+                if (phase1 && phase2) || (!phase1 && !phase2) {
+                    counts[0] += 1;
+                } else { counts[1] += 1; }
+            }
+        }   
+    }
 
 
 
@@ -3486,6 +3525,10 @@ impl Molecules {
     }
     fn get_linked_read_molecules<'a>(&'a self) -> Box<dyn Iterator<Item=&i32>+'a> {
         Box::new(self.linked_read_molecules.keys())
+    }
+
+    fn get_hic_molecules<'a>(&'a self) -> Box<dyn Iterator<Item=&i32>+'a> {
+        Box::new(self.hic_molecules.keys())
     }
 
     fn get_long_read_variants<'a>(&'a self, mol: i32) -> Box<dyn Iterator<Item=&i32>+'a> {
