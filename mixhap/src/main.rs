@@ -807,15 +807,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
         let mut scaffold_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
         for mol in molecules.get_linked_read_molecules() {
-            eprintln!("linked read mol {}", mol);
             let mut phaseblock_end_counts: HashMap<i32, [u32; 2]> = HashMap::new();
             
             for var in molecules.get_linked_read_variants(*mol) {
-                eprintln!("linked read var {}", var);
                 if let Some(phaseblockend_id) = kmer_end_phasings.get(var) {
                     let phase = phasing.get(var).unwrap();
                     let count = phaseblock_end_counts.entry(*phaseblockend_id).or_insert([0;2]);
-                    eprintln!("updating mol phasing {}, {:?}", phase, count);
                     if *phase { count[0] += 1; } else { count[1] += 1; }
                 }
             }
@@ -830,7 +827,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             }
             for i in 0..endcountsvec.len() {
                 let (pbend1, phase1) = endcountsvec[i];
-                for j in i..endcountsvec.len() {
+                for j in (i+1)..endcountsvec.len() {
                     let (pbend2, phase2) = endcountsvec[j];
                     let min = pbend1.min(pbend2);
                     let max = pbend1.max(pbend2);
@@ -841,25 +838,28 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 }
             }   
         }
-
-            
-        
+        let mut links = 0;
         for ((pbe1, pbe2), counts) in scaffold_phasing.iter() {
             let p1 = counts[0] as f32;
             let p2 = counts[1] as f32;
             let total = p1 + p2;
             if total < 5.0 { continue; }
             if p1/total > 0.9 {
+                links += 1;
                 eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
             } else if p2/total > 0.9 {
                 eprintln!("scaffolding link from {} -- {} with {:?}", pbe1, pbe2, counts);
-            }   else {
-                eprintln!("failure to scaffold from {} -- {} with {:?}", pbe1, pbe2, counts);
-            }
+                links += 1;
+            }//   else {
+            //    eprintln!("failure to scaffold from {} -- {} with {:?}", pbe1, pbe2, counts);
+            //}
         }
+        eprintln!("linked read scaffolding made {} links", links);
+
+
         
     } else {
-        eprintln!("no 10x linked read scaffolding");
+        eprintln!("no linked read scaffolding");
     }
 
 
