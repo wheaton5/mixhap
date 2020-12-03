@@ -921,7 +921,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
 
     // HIC scaffolding
-
+    let mut hic_components: DisjointSet<i32> = DisjointSet::new();
     let mut kmer_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
     for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
         for (hap1mer, hap2mer) in kmer_ordering.iter() {
@@ -970,17 +970,82 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         let p1 = counts[0] as f32;
         let p2 = counts[1] as f32;
         let total = p1 + p2;
-        eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
+        //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
         if total < 100.0 { continue; }
-        if p1/total > 0.7 {
+        if p1/total > 0.75 {
             links += 1;
+            hic_components.union(*pb1, *pb2);
+            components.union(*pb1, *pb2);
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
-        } else if p2/total > 0.9 {
+        } else if p2/total > 0.75 {
+            hic_components.union(*pb1, *pb2);
+            components.union(*pb1, *pb2);
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
             links += 1;
         }
     }
     eprintln!("hic scaffolding made {} links", links);
+
+    let mut component_blocks: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (phase_block_id, _) in phase_blocks.iter() {
+        if let Some(comp) = components.find(*phase_block_id as i32){
+            let comps = component_blocks.entry(comp as i32).or_insert(Vec::new());
+            comps.push(*phase_block_id as i32);
+        }
+    }
+
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut total_length = 0.0;
+    for (comp, blocks) in component_blocks.iter() {
+        let mut size = 0;
+        for block in blocks {
+            let length = phase_block_length.get(block).unwrap();
+            size += length;
+        }
+        sizes.push(size);
+        total_length += size as f32;
+    }
+    sizes.sort();
+    sizes.reverse();
+    let mut so_far = 0.0;
+    for size in sizes {
+        so_far += size as f32;
+        if so_far/total_length >= 0.5 {
+            eprintln!("LINKED READ + HIC SCAFFOLDING N50 {}", size);
+            break;
+        }
+    }
+
+
+    let mut component_blocks: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (phase_block_id, _) in phase_blocks.iter() {
+        if let Some(comp) = hic_components.find(*phase_block_id as i32){
+            let comps = component_blocks.entry(comp as i32).or_insert(Vec::new());
+            comps.push(*phase_block_id as i32);
+        }
+    }
+
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut total_length = 0.0;
+    for (comp, blocks) in component_blocks.iter() {
+        let mut size = 0;
+        for block in blocks {
+            let length = phase_block_length.get(block).unwrap();
+            size += length;
+        }
+        sizes.push(size);
+        total_length += size as f32;
+    }
+    sizes.sort();
+    sizes.reverse();
+    let mut so_far = 0.0;
+    for size in sizes {
+        so_far += size as f32;
+        if so_far/total_length >= 0.5 {
+            eprintln!("HIC SCAFFOLDING N50 {}", size);
+            break;
+        }
+    }
 
 
 
