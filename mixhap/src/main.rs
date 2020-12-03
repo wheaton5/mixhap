@@ -932,10 +932,11 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             kmer_phasings.insert(-hap2mer, *phase_block_id as i32);
         }
     }
-    let mut hic_scaffold_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
+    let mut hic_scaffold_phasing: HashMap<(i32, i32), [u32; 4]> = HashMap::new();
+    let mut hic_scaffold_kmers: HashMap<(i32, i32), (HashSet<i32>, HashSet<i32>)> = HashMap::new();
     for mol in molecules.get_hic_molecules() {
         let mut phaseblock_counts: HashMap<i32, [u32; 2]> = HashMap::new();
-            
+        
         for var in molecules.get_hic_variants(*mol) {
             if let Some(phaseblock_id) = kmer_phasings.get(var) {
                 let phase = phasing.get(var).unwrap();
@@ -958,18 +959,24 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 let (pbend2, phase2) = countsvec[j];
                 let min = pb1.min(pbend2);
                 let max = pb1.max(pbend2);
-                let counts = hic_scaffold_phasing.entry((min, max)).or_insert([0;2]);
-                if (phase1 && phase2) || (!phase1 && !phase2) {
+                let counts = hic_scaffold_phasing.entry((min, max)).or_insert([0;4]);
+                if (phase1 && phase2) {
                     counts[0] += 1;
-                } else { counts[1] += 1; }
+                } else if (!phase1 && !phase2) {
+                    counts[1] += 1;
+                } else if phase1 && ! phase2 { 
+                    counts[2] += 1; 
+                } else {
+                    counts[3] += 1;
+                }
             }
         }   
     }
     let mut links = 0;
     for ((pb1, pb2), counts) in hic_scaffold_phasing.iter() {
         if pb1 == pb2 { continue; }
-        let p1 = counts[0] as f32;
-        let p2 = counts[1] as f32;
+        let p1 = (counts[0] + counts[1]) as f32;
+        let p2 = (counts[2] + counts[3]) as f32;
         let total = p1 + p2;
         //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
         if total < 100.0 { continue; }
