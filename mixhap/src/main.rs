@@ -7,6 +7,7 @@ extern crate flate2;
 extern crate byteorder;
 extern crate rayon;
 extern crate itertools;
+extern crate disjoint_set;
 
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
@@ -42,10 +43,12 @@ use hashbrown::{HashMap,HashSet};
 use std::collections::VecDeque;
 
 use std::collections::BTreeSet;
+use disjoint_set::DisjointSet;
 //use rayon::prelude::*;
 
 fn main() {
     let params = load_params();
+
     //let whitelist = load_whitelist(&params); // map from barcode string to index in whitelist
     //println!("whitelist loaded");
     //let (variants, barcodes, info, phasing) = load_variants(&params, &whitelist); 
@@ -792,11 +795,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     eprintln!("linked read scaffolding");
     // NOW WE are going to scaffold using linked reads and hic
 
-
+    let mut components: DisjointSet<i32> = DisjointSet::new();
     if params.txg_mols.len() > 0 {
         //first we need to build Hashmap from kmer to phasing ends 
         let mut kmer_end_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
         for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
+            components.make_set(*phase_block_id as i32);
             for (index, (hap1mer, hap2mer)) in kmer_ordering.iter().enumerate() {
                 if index < 200 {
                     kmer_end_phasings.insert(*hap1mer, *phase_block_id as i32);
@@ -816,7 +820,6 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         let mut scaffold_phasing: HashMap<(i32, i32), [u32; 2]> = HashMap::new();
         for mol in molecules.get_linked_read_molecules() {
             let mut phaseblock_end_counts: HashMap<i32, [u32; 2]> = HashMap::new();
-            
             for var in molecules.get_linked_read_variants(*mol) {
                 if let Some(phaseblockend_id) = kmer_end_phasings.get(var) {
                     let phase = phasing.get(var).unwrap();
@@ -856,41 +859,65 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             let mut link = false;
             if p1/total > 0.95 {
                 links += 1;
-                eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
+                //eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
                 link = true;
             } else if p2/total > 0.9 {
-                eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
+                //eprint!("linkedread scaffolding link from {} -- {} with {:?} ", pbe1, pbe2, counts);
                 links += 1;
                 link = true;
             }
             if link {
+                components.union(pbe1.abs(), pbe2.abs()).expect("cannot merge");
                 if let Some(chrom1) = phase_block_chrom.get(&pbe1.abs()) {
                     if let Some(chrom2) = phase_block_chrom.get(&pbe2.abs()) {
-
-                            if let Some(length1) = phase_block_length.get(&pbe1.abs()) {
-                                if let Some(length2) = phase_block_length.get(&pbe2.abs()) {
-                                    if chrom1 == chrom2 {
-                                        eprintln!("GOOD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
-                                    }
-                                    else {
-                                        eprintln!("BAD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
-
-                                    }
+                        if let Some(length1) = phase_block_length.get(&pbe1.abs()) {
+                            if let Some(length2) = phase_block_length.get(&pbe2.abs()) {
+                                if chrom1 == chrom2 {
+                                    eprintln!("GOOD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
+                                }
+                                else {
+                                    eprintln!("BAD linkedread scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pbe1, pbe2, counts, length1, length2, chrom1, chrom2);
                                 }
                             }
-                        } 
-                    
+                        }
+                    } 
                 }
             }
         }
         eprintln!("linked read scaffolding made {} links", links);
-
-
-        
     } else {
         eprintln!("no linked read scaffolding");
     }
 
+    let mut component_blocks: HashMap<i32, Vec<i32>> = HashMap::new();
+    for (phase_block_id, _) in phase_blocks.iter() {
+        if let Some(comp) = components.find(*phase_block_id as i32){
+            let comps = component_blocks.entry(comp as i32).or_insert(Vec::new());
+            comps.push(*phase_block_id as i32);
+        }
+    }
+
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut total_length = 0.0;
+    for (comp, blocks) in component_blocks.iter() {
+        let mut size = 0;
+        for block in blocks {
+            let length = phase_block_length.get(block).unwrap();
+            size += length;
+        }
+        sizes.push(size);
+        total_length += size as f32;
+    }
+    sizes.sort();
+    sizes.reverse();
+    let mut so_far = 0.0;
+    for size in sizes {
+        so_far += size as f32;
+        if so_far/total_length >= 0.5 {
+            eprintln!("LINKED READ SCAFFOLDING N50 {}", size);
+            break;
+        }
+    }
 
 
     // HIC scaffolding
@@ -3904,7 +3931,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
     let mut long_read_variants: HashMap<i32, HashSet<i32>> = HashMap::new();
     
     let mut linked_read_molecules: HashMap<i32, HashSet<i32>> = HashMap::new(); //map from molecule_id to list of variant_ids
-    let hic_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
+    let mut hic_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut long_read_molecules: HashMap<i32, HashSet<i32>> = HashMap::new();
     let mut long_read_molecule_list: HashMap<i32, Vec<i32>> = HashMap::new();
     let mut long_read_molecule_positions: HashMap<i32, Vec<i32>> = HashMap::new();
@@ -4056,7 +4083,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
                         },
                         KmerType::UnpairedHet => {
                             //eprintln!("unpaired het kmer");
-                            vars.insert(kmer_id); 
+                            //vars.insert(kmer_id); 
                             vars2.push(kmer_id);
                             //let bc_vars = het_linked_read_molecules.entry(barcode_id).or_insert(HashSet::new());
                             //bc_vars.insert(kmer_id);
@@ -4064,7 +4091,7 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
                         },
                         KmerType::Homozygous => {
                             //eprintln!("homozygous kmer");
-                            vars.insert(kmer_id); 
+                            //vars.insert(kmer_id); 
                             vars2.push(kmer_id);
                             //let bc_vars = hom_linked_read_molecules.entry(barcode_id).or_insert(HashSet::new());
                             //bc_vars.insert(kmer_id);
@@ -4072,13 +4099,16 @@ fn load_molecule_kmers(params: &Params, kmers: &Kmers) -> (Variants, Molecules){
                         },
                     }
                     //if !bad_var_set.contains(&kmer_id.abs()) {
-                        
+                    
                     
                     if kmer_id.abs() > max_var { max_var = kmer_id.abs() }
                     //}
                 } else { break 'outerhic; }
             }
             mol_id += 1;
+            if vars.len() > 1 {
+                hic_molecules.insert(mol_id, vars);
+            }
         }
     }
     
