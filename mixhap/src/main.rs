@@ -924,6 +924,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     let mut hic_components: DisjointSet<i32> = DisjointSet::new();
     let mut kmer_phasings: HashMap<i32, i32> = HashMap::new(); // kmer id to phase block id (phase block will be signed to indicate beginning or end)
     for (phase_block_id, kmer_ordering) in phase_blocks.iter() {
+        hic_components.make_set(*phase_block_id as i32);
         for (hap1mer, hap2mer) in kmer_ordering.iter() {
             kmer_phasings.insert(*hap1mer, *phase_block_id as i32);
             kmer_phasings.insert(-hap1mer, *phase_block_id as i32);
@@ -974,12 +975,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         if total < 100.0 { continue; }
         if p1/total > 0.75 {
             links += 1;
-            hic_components.union(*pb1, *pb2);
-            components.union(*pb1, *pb2);
+            hic_components.union(*pb1, *pb2).expect("cannot merge2");
+            components.union(*pb1, *pb2).expect("cannot merge3");
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
         } else if p2/total > 0.75 {
-            hic_components.union(*pb1, *pb2);
-            components.union(*pb1, *pb2);
+            hic_components.union(*pb1, *pb2).expect("cannot merge2");
+            components.union(*pb1, *pb2).expect("cannot merge3");
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
             links += 1;
         }
