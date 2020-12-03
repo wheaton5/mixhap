@@ -960,9 +960,9 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 let min = pb1.min(pbend2);
                 let max = pb1.max(pbend2);
                 let counts = hic_scaffold_phasing.entry((min, max)).or_insert([0;4]);
-                if (phase1 && phase2) {
+                if phase1 && phase2 {
                     counts[0] += 1;
-                } else if (!phase1 && !phase2) {
+                } else if !phase1 && !phase2 {
                     counts[1] += 1;
                 } else if phase1 && ! phase2 { 
                     counts[2] += 1; 
@@ -977,22 +977,31 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         if pb1 == pb2 { continue; }
         let p1 = (counts[0] + counts[1]) as f32;
         let p2 = (counts[2] + counts[3]) as f32;
+        let mut minor = 0.0;
+        let mut major = 0.0;
+        if p1 > p2 {  }
         let total = p1 + p2;
         //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
         if total < 100.0 { continue; }
         let mut link = false;
-        if p1/total > 0.93 {
-            links += 1;
-            link = true;
-            hic_components.union(*pb1, *pb2).expect("cannot merge2");
-            components.union(*pb1, *pb2).expect("cannot merge3");
+        if p1/total >= 0.96 {
+            minor = counts[0].min(counts[1]) as f32; major = counts[0].max(counts[1]) as f32;
+            if minor/(minor+major) >= 0.2 {
+                links += 1;
+                link = true;
+                hic_components.union(*pb1, *pb2).expect("cannot merge2");
+                components.union(*pb1, *pb2).expect("cannot merge3");
+            }
             //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
-        } else if p2/total > 0.93 {
-            link = true;
-            hic_components.union(*pb1, *pb2).expect("cannot merge2");
-            components.union(*pb1, *pb2).expect("cannot merge3");
-            //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
-            links += 1;
+        } else if p2/total >= 0.96 {
+            minor = counts[2].min(counts[3]) as f32; major = counts[2].max(counts[3]) as f32;
+            if minor/(minor + major) >= 0.2 {
+                link = true;
+                hic_components.union(*pb1, *pb2).expect("cannot merge2");
+                components.union(*pb1, *pb2).expect("cannot merge3");
+                //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
+                links += 1;
+            }
         }
 
         if link {
