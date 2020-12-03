@@ -973,17 +973,38 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         let total = p1 + p2;
         //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
         if total < 100.0 { continue; }
+        let mut link = false;
         if p1/total > 0.93 {
             links += 1;
+            link = true;
             hic_components.union(*pb1, *pb2).expect("cannot merge2");
             components.union(*pb1, *pb2).expect("cannot merge3");
-            eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
+            //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
         } else if p2/total > 0.93 {
+            link = true;
             hic_components.union(*pb1, *pb2).expect("cannot merge2");
             components.union(*pb1, *pb2).expect("cannot merge3");
-            eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
+            //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
             links += 1;
         }
+
+        if link {
+                components.union(pb1.abs(), pb2.abs()).expect("cannot merge");
+                if let Some(chrom1) = phase_block_chrom.get(&pb1.abs()) {
+                    if let Some(chrom2) = phase_block_chrom.get(&pb2.abs()) {
+                        if let Some(length1) = phase_block_length.get(&pb1.abs()) {
+                            if let Some(length2) = phase_block_length.get(&pb2.abs()) {
+                                if chrom1 == chrom2 {
+                                    eprintln!("GOOD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
+                                }
+                                else {
+                                    eprintln!("BAD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
+                                }
+                            }
+                        }
+                    } 
+                }
+            }
     }
     eprintln!("hic scaffolding made {} links", links);
 
