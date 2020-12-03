@@ -973,12 +973,12 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         let total = p1 + p2;
         //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
         if total < 100.0 { continue; }
-        if p1/total > 0.75 {
+        if p1/total > 0.93 {
             links += 1;
             hic_components.union(*pb1, *pb2).expect("cannot merge2");
             components.union(*pb1, *pb2).expect("cannot merge3");
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
-        } else if p2/total > 0.75 {
+        } else if p2/total > 0.93 {
             hic_components.union(*pb1, *pb2).expect("cannot merge2");
             components.union(*pb1, *pb2).expect("cannot merge3");
             eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
