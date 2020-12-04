@@ -442,6 +442,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     let mut kmer_order: VecDeque<(i32, i32)> = VecDeque::new();
     let mut phase_block_chrom: HashMap<i32, i32> = HashMap::new();
     let mut phase_block_length: HashMap<i32, usize> = HashMap::new();
+    let mut crib_locations: HashMap<usize, HashMap<i32, Vec<usize>>> = HashMap::new();
     loop {
         
         let mut startvar;
@@ -496,6 +497,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                     }
                     blocks.push((*chrom, start, last));
                 }
+                crib_locations.insert(phase_block_number, crib_positions);
                 if blocks.len() > 1 {
                     eprintln!("MULTIPOSITION phaseblock\t{:?}", blocks);
                     
@@ -1065,26 +1067,66 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
 
     let mut sizes: Vec<usize> = Vec::new();
     let mut total_length = 0.0;
+    let mut scaff_min_max: HashMap<usize, (usize, usize)> = HashMap::new();
     for (comp, blocks) in component_blocks.iter() {
         let mut size = 0;
+        let mut min: usize = 100000000000;
+        let mut max: usize = 0;
         for block in blocks {
-            let length = phase_block_length.get(block).unwrap();
-            size += length;
+            if let Some(chrpositions) = crib_locations.get(&(*block as usize)) {
+                if let Some(chrom) = phase_block_chrom.get(block) {
+                    if let Some(positions) = chrpositions.get(chrom) {
+                        for pos in positions {
+                            min = min.min(*pos);
+                            max = max.max(*pos);
+                        }
+                    }
+                }
+            }
         }
+        scaff_min_max.insert(*comp as usize, (min, max));
+        size = max - min;
         sizes.push(size);
         total_length += size as f32;
     }
     sizes.sort();
     sizes.reverse();
     let mut so_far = 0.0;
-    for size in sizes {
-        so_far += size as f32;
+    for size in sizes.iter() {
+        so_far += *size as f32;
         if so_far/total_length >= 0.5 {
             eprintln!("HIC SCAFFOLDING N50 {}", size);
             break;
         }
     }
 
+    for size in sizes.iter() {
+        so_far += *size as f32;
+        eprintln!("HIC SCAFFOLDING\t{}\t{}", size, so_far);
+    }
+
+    let mut chrom_scaffolds: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+    for (comp, blocks) in component_blocks.iter() {
+        let mut min = 10000;
+        for block in blocks {
+            min = min.min(*phase_block_chrom.get(block).unwrap());
+        }
+        let minmax = chrom_scaffolds.entry(min as usize).or_insert(Vec::new());
+        if let Some((min, max)) = scaff_min_max.get(&(*comp as usize)) {
+             minmax.push((*min, *max));
+        }
+       
+    }
+
+    for chrom in 1..33 {
+        eprintln!("CHROM {} SCAFFOLDS", chrom);
+        if let Some(scaffolds) = chrom_scaffolds.get_mut(&chrom) {
+            scaffolds.sort();
+            for (min, max) in scaffolds {
+                eprintln!("\t{}\t{}", min, max);
+            }
+        }
+    }
 
 
 
