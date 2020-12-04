@@ -1007,22 +1007,32 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         }
 
         if link {
-                components.union(pb1.abs(), pb2.abs()).expect("cannot merge");
-                if let Some(chrom1) = phase_block_chrom.get(&pb1.abs()) {
-                    if let Some(chrom2) = phase_block_chrom.get(&pb2.abs()) {
-                        if let Some(length1) = phase_block_length.get(&pb1.abs()) {
-                            if let Some(length2) = phase_block_length.get(&pb2.abs()) {
-                                if chrom1 == chrom2 {
-                                    eprintln!("GOOD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
-                                }
-                                else {
-                                    eprintln!("BAD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
-                                }
+            components.union(pb1.abs(), pb2.abs()).expect("cannot merge");
+            if let Some(chrom1) = phase_block_chrom.get(&pb1.abs()) {
+                if let Some(chrom2) = phase_block_chrom.get(&pb2.abs()) {
+                    if let Some(length1) = phase_block_length.get(&pb1.abs()) {
+                        if let Some(length2) = phase_block_length.get(&pb2.abs()) {
+                            if chrom1 == chrom2 {
+                                eprintln!("GOOD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
+                            }
+                            else {
+                                eprintln!("BAD HIC scaffolding link from {} -- {} with {:?} lengths {} and {}  match, crib chrom {} == {}", pb1, pb2, counts, length1, length2, chrom1, chrom2);
                             }
                         }
-                    } 
+                    }
+                } 
+            }
+        } else if let Some(chrom1) = phase_block_chrom.get(&pb1.abs()) {
+            if let Some(chrom2) = phase_block_chrom.get(&pb2.abs()) {
+                if let Some(length1) = phase_block_length.get(&pb1.abs()) {
+                    if let Some(length2) = phase_block_length.get(&pb2.abs()) {
+                        if chrom1 == chrom2 {
+                            eprintln!("MISSED HIC scaffold from {} -- {} lengths {} and {}. What happened? {:?} ", pb1, pb2, length1, length2, counts);
+                        }
+                    }
                 }
             }
+        }
     }
     eprintln!("hic scaffolding made {} links", links);
 
@@ -1070,7 +1080,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
     let mut scaff_min_max: HashMap<usize, (usize, usize)> = HashMap::new();
     for (comp, blocks) in component_blocks.iter() {
         let mut size = 0;
-        let mut min: usize = 100000000000;
+        let mut min: usize = 1000000000;
         let mut max: usize = 0;
         for block in blocks {
             if let Some(chrpositions) = crib_locations.get(&(*block as usize)) {
@@ -1085,9 +1095,11 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             }
         }
         scaff_min_max.insert(*comp as usize, (min, max));
-        size = max - min;
-        sizes.push(size);
-        total_length += size as f32;
+        if max > min {
+            size = max - min;
+            sizes.push(size);
+            total_length += size as f32;
+        }
     }
     sizes.sort();
     sizes.reverse();
@@ -1099,8 +1111,8 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
             break;
         }
     }
-
-    for size in sizes.iter() {
+    so_far = 0.0;
+    for (index, size) in sizes.iter().enumerate() {
         so_far += *size as f32;
         eprintln!("HIC SCAFFOLDING\t{}\t{}", size, so_far);
     }
