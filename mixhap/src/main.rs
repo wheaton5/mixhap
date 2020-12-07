@@ -984,9 +984,9 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
         if p1 > p2 {  }
         let total = p1 + p2;
         //eprintln!("hic checking {} -- {} with {:?}", pb1, pb2, counts);
-        if total < 100.0 { continue; }
+        if total < 70.0 { continue; }
         let mut link = false;
-        if p1/total >= 0.96 {
+        if p1/total >= 0.92 {
             minor = counts[0].min(counts[1]) as f32; major = counts[0].max(counts[1]) as f32;
             if minor/(minor+major) >= 0.2 {
                 links += 1;
@@ -995,7 +995,7 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 components.union(*pb1, *pb2).expect("cannot merge3");
             }
             //eprintln!("hic scaffolding link from {} -- {} with {:?}", pb1, pb2, counts);
-        } else if p2/total >= 0.96 {
+        } else if p2/total >= 0.92 {
             minor = counts[2].min(counts[3]) as f32; major = counts[2].max(counts[3]) as f32;
             if minor/(minor + major) >= 0.2 {
                 link = true;
@@ -1005,7 +1005,6 @@ fn sparsembly2point0(variants: &Variants, molecules: &Molecules, adjacency_list:
                 links += 1;
             }
         }
-
         if link {
             components.union(pb1.abs(), pb2.abs()).expect("cannot merge");
             if let Some(chrom1) = phase_block_chrom.get(&pb1.abs()) {
