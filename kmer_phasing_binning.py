@@ -29,7 +29,7 @@ mypath = os.path.dirname(os.path.realpath(__file__))
 cmd = [mypath+"/het_snp_kmers/target/release/het_snp_kmers", "--kmer_counts", args.output+"/kmer_counts.tsv"]
 cmd.extend(["--max_coverage", str(args.max_coverage), "--min_coverage", str(args.min_coverage), 
             "--max_error", str(args.max_error), "--max_total_coverage", str(args.max_total_coverage),
-            "--unpaired_het_modimizer", args.unpaired_het_modimizer, "--hom_modimizer", args.hom_modimizer, "--kmer_size", str(args.kmer_size)])
+            "--unpaired_het_modimizer", args.unpaired_het_modimizer, "--hom_modimizer", args.hom_modimizer])
 print(" ".join(cmd))
 with open(args.output+"/het_kmers.tsv", 'w') as out:
     subprocess.check_call(cmd,stdout=out)
